@@ -1,9 +1,10 @@
-# dsh-science
-
+# dsh-science 
 [![npm version](https://img.shields.io/npm/v/dsh-science)](https://www.npmjs.com/package/dsh-science)
 [![license](https://img.shields.io/npm/l/dsh-science)](LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D18-339933)](package.json)
 [![dsh-plugin topic](https://img.shields.io/badge/GitHub-topic%3A%20dsh--plugin-181717)](https://github.com/topics/dsh-plugin)
+---
+<img width="865" height="795" alt="Screenshot 2026-08-14 at 19 49 06" src="https://github.com/user-attachments/assets/b6ef210f-6081-42b7-91fd-484f554c955e" />
 
 **A Claude Science–style research workbench for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) — for genomics / pathogens / human health / bioinformatics projects.**
 
