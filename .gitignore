@@ -1,0 +1,11 @@
+# npm / pnpm
+node_modules/
+*.tgz
+*.log
+
+# OS
+.DS_Store
+
+# smoke-test / verification workspaces
+.test-workspace/
+test/.tmp/

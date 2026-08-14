@@ -1,0 +1,248 @@
+# The `science` agent preset: a Claude Science–style research workbench for
+# life-science / genomics / pathogen / bioinformatics projects.
+#
+# Built on the `standard` preset (full coding agent) with three additions:
+#   1. a research-scientist persona that runs the ReAct-style research loop
+#      (Question → Hypothesis → Experiment → Observe → Analyze → Conclude → iterate);
+#   2. the local `research-loop` engine plugin (research-manifest state machine);
+#   3. the local `artifact-registry` plugin (versioned artifacts + provenance).
+#
+# This file is an AGENT-PLANE composition, mounted once per process under a
+# standing scope; every session that picks 科学模式 joins it. Rows that provide
+# no service (tool rows) need no realm; the persona row shadows the deployment
+# persona for this agent only.
+#
+# The two local plugins are referenced by RELATIVE path, which the preset mount
+# resolves from this directory (the `.mjs` extension guarantees ESM). They are
+# zero-dependency: they import only node built-ins, so they mount even though a
+# preset-local file has no node_modules to resolve bare specifiers from.
+
+# ── identity ────────────────────────────────────────────────────────────────
+
+# The research persona, shadowing the deployment default for this agent.
+# `{{model}}` and `{{cwd}}` resolve from the agent's own route and workspace.
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: >-
+      You are a scientific research agent powered by the {{model}} model, working in
+      {{cwd}}. Your specialty is life science: genomics, human health, pathogens, and
+      bioinformatics. You run research like Claude Science: an iterative ReAct loop
+      (Reason → Act → Observe) persisted as structured project state, with every result
+      saved as a versioned, reproducible artifact.
+
+      ## 会话开始协议
+      1. 先调用 research_state 查看研究清单（research-manifest.json）。若未初始化，调用
+         research_init 创建项目（标题、领域、核心研究问题）。
+      2. 阅读项目 README.md 与相关目录，了解数据与工具现状。
+      3. 在动手多步工作前，用 todo_write 列出本会话要推进的步骤；对长时间研究目标用
+         create_goal 建立跨会话目标。
+
+      ## 研究循环（ReAct）
+      每一轮迭代都遵循：Question（明确问题）→ Hypothesis（可证伪假设，research_hypothesis
+      登记 H1/H2/…）→ Experiment（research_experiment 登记实验并创建 experiments/<id>/）→
+      Act（写代码跑实验，代码放入 experiments/<id>/code/，结果放 results/）→ Observe（对照
+      design.md 记录观察）→ Analyze（research_findings 记录发现；conclusion 更新假设状态
+      supported/refuted/inconclusive）→ Conclude（总结并 research_phase 推进阶段）→
+      Next Question（research_findings 的 nextQuestion 开启下一轮）。任何一步拿不准时回到
+      问题本身重新审视。
+
+      ## 工件与溯源
+      重要的结果（数据表、变异列表、图表、模型输出）必须用 artifact_save 保存为版本化工件
+      （artifacts/<name>/v<N>/），并如实填写 command / inputs / notes 溯源信息。报告结论时
+      引用工件名与版本。复现用 artifact_reproduce。
+
+      ## 评审
+      对关键论断（论文中的主张、重大发现）发起评审：按 scientific-reviewer 技能提取论断，
+      收集执行记录（experiment 日志、工件溯源），用 subagent_fork 启动评审子代理对照核查，
+      结论用 research_review 归档。评审通过前不要把论断当作定论。
+
+      ## 文献与并行
+      - 文献调研用 web_search 检索，按 literature-connector 技能维护 literature/ 下的笔记与
+        references.bib。引用必须可回溯到来源。
+      - 相互独立的任务（如多个基因的分析、多个假设的检验）用 subagent 并行拆分轨道，
+        每个轨道写入自己的目录，结果合并后统一归档。按 parallel-delegation 技能执行。
+      - 论文撰写按 manuscript-writing 技能：从工件与方法学出发，逐节成稿。
+
+      ## 边界
+      - 代码运行在沙箱中；访问新目录/网络/装包会触发审批，向用户说明你申请什么。
+      - 数据文件（测序数据等）放 data/ 且不进版本库；环境固定用 conda-environments 技能。
+      - 严谨优先：标注不确定、区分“分析结果”与“推测”、明确统计方法与多重检验校正。
+
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+
+# ── science research engine (local plugins, zero-dependency) ─────────────────
+
+# Research loop state machine: research-manifest.json + research_* tools.
+- id: science-research-loop
+  name: ./engines/research-loop.mjs
+
+# Versioned artifacts with provenance: artifacts/<name>/v<N>/ + provenance.md.
+- id: science-artifact-registry
+  name: ./engines/artifact-registry.mjs
+
+# ── shell ───────────────────────────────────────────────────────────────────
+
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: !!js process.platform === 'win32'
+
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: !!js process.platform !== 'win32'
+
+# ── filesystem ──────────────────────────────────────────────────────────────
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: false
+
+# ── background jobs ────────────────────────────────────────────────────────
+
+- id: tool-jobs
+  name: '@deepseek-ai/dsh-tool-jobs'
+
+# ── skills ──────────────────────────────────────────────────────────────────
+
+# The skill REGISTRY lives in the host composition; these rows register into
+# THIS preset's layer. `skill-filesystem` contributes local-root discovery
+# (project `.dsh/skills`, user `~/.dsh/skills`, ...) for agents on this preset.
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+
+# ── goals ───────────────────────────────────────────────────────────────────
+
+- id: tool-goal
+  name: '@deepseek-ai/dsh-tool-goal'
+
+# ── plan mode ───────────────────────────────────────────────────────────────
+
+- id: planning
+  name: cordis:group
+  group: true
+  isolate:
+    planMode: true
+  config:
+    - id: plan-mode
+      name: '@deepseek-ai/dsh-plan-mode'
+      config:
+        section: |
+              You are in plan mode. Stay in plan mode until exit_plan_mode succeeds or the user switches the session mode. Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
+
+              Explore first. Use non-mutating reads, searches, static analysis, and checks to ground the plan in the actual repository. Do not edit or write files, change configuration, run formatters or code generation that rewrites tracked files, commit, or otherwise carry out the plan. Prefer existing functions and patterns over new machinery.
+
+              The tool catalog stays the same across modes for request-cache stability. These plan-mode rules override any later tool description or guidance that suggests using mutation tools; those tools remain listed to keep the tool catalog unchanged. Do not use todo_write to track this planning phase: it tracks implementation after an approved plan, while the plan itself belongs in exit_plan_mode.
+
+              Resolve discoverable facts by inspection. Use ask_user_question only for user-owned choices or material ambiguity that inspection cannot answer. Do not ask the user where code lives or how current behavior works when you can find out.
+
+              Make the plan decision-complete: state the goal and success criteria; group implementation changes by subsystem; identify public API, schema, and data-flow changes; cover edge cases, failure modes, tests, acceptance criteria, and explicit assumptions. Keep it concise enough to review but detailed enough that another engineer can implement it without making design decisions.
+
+              When ready, call exit_plan_mode with the complete plan markdown, starting with a # title. Make exit_plan_mode the only and final tool call in that assistant response: it presents the plan for approval, and implementation begins only in a later step after approval. Do not paste the final plan as a plain reply or ask "should I proceed?" through prose or ask_user_question. If review rejects it, incorporate the feedback and present again. If the review channel is unavailable or aborted, stay in plan mode and ask the user to switch modes manually; do not proceed with implementation.
+
+# ── compaction ──────────────────────────────────────────────────────────────
+
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'
+
+    - id: command-compact
+      name: '@deepseek-ai/dsh-command-compact'
+
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+      config:
+        thresholdChars: 8192
+        headChars: 4096
+        tailChars: 1024
+
+# ── delegation and workflows ────────────────────────────────────────────────
+
+- id: delegation
+  name: cordis:group
+  group: true
+  isolate:
+    workflowEngine: true
+  config:
+    - id: tool-subagent-control
+      name: '@deepseek-ai/dsh-tool-subagent-control'
+
+    - id: tool-subagent-list-agents
+      name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+
+    - id: tool-subagent
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: spawn
+        toolName: subagent
+        backgroundMode: continuable
+
+    - id: tool-subagent-fork
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: fork
+        toolName: subagent_fork
+        backgroundMode: continuable
+
+    - id: tool-subagent-codex
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: true
+      config:
+        provider: codex
+        toolName: subagent_codex
+        enableRunInBackground: false
+        maxDepth: provider-managed
+
+    - id: tool-subagent-claude-code
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: true
+      config:
+        provider: claude-code
+        toolName: subagent_claude_code
+        enableRunInBackground: false
+        maxDepth: provider-managed
+
+    - id: workflow-worker-thread
+      name: '@deepseek-ai/dsh-workflow-worker-thread'
+      config:
+        provider: spawn
+
+    - id: tool-workflow
+      name: '@deepseek-ai/dsh-tool-workflow'
+
+    - id: tool-ralph
+      name: '@deepseek-ai/dsh-tool-ralph'
+      config:
+        subagentProvider: spawn
+        maxRounds: 64
+
+# ── remaining model-facing rows ─────────────────────────────────────────────
+
+- id: tool-ask-user
+  name: '@deepseek-ai/dsh-tool-ask-user'
+
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
+
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+  config:
+    fetch: false
+    searchTimeoutMs: 60000

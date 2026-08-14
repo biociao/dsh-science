@@ -1,0 +1,23 @@
+# dsh-science bundle patch — inserts the two zero-dependency research engines
+# into a profile's layer stack (installable via `dsh plugin add <pkg>`).
+#
+# IMPORTANT: engine rows are referenced by PACKAGE SUBPATH EXPORT
+# (`dsh-science/engines/*.mjs`), not by relative path. The profile loader
+# resolves relative names against the *profile directory*, so `./engines/...`
+# breaks inside a bundle; subpath exports resolve from the profile's
+# node_modules. Verified experimentally on dsh 0.1.0-rc.6.
+- insert:
+    - id: science-research-loop
+      name: dsh-science/engines/research-loop.mjs
+    - id: science-artifact-registry
+      name: dsh-science/engines/artifact-registry.mjs
+
+# Optional: the research persona. It applies to ALL agents on the profile that
+# picks up this bundle. For per-agent scoping (the full 科学模式 experience),
+# prefer the agent-preset install path instead — see README.
+# - insert:
+#     - id: persona
+#       name: '@deepseek-ai/dsh-persona'
+#       config:
+#         text: >-
+#           You are a scientific research agent ...

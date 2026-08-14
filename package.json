@@ -1,0 +1,49 @@
+{
+  "name": "dsh-science",
+  "version": "0.1.0",
+  "description": "Claude Science-style research workbench for DeepSeek Harness: ReAct research-loop engine (research_* tools), versioned artifacts with provenance (artifact_* tools), and 10 science skills for genomics / pathogens / bioinformatics.",
+  "type": "module",
+  "license": "MIT",
+  "author": "fangchao <fangchao@genomics.cn>",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "science",
+    "research",
+    "react-loop",
+    "artifact",
+    "provenance",
+    "reproducibility",
+    "genomics",
+    "pathogen",
+    "bioinformatics"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "exports": {
+    "./engines/*": "./engines/*",
+    "./skills/*": "./skills/*",
+    "./preset/*": "./preset/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "engines",
+    "preset",
+    "skills",
+    "scripts",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "test": "node scripts/smoke-test.mjs",
+    "sync": "bash scripts/sync-engines.sh"
+  }
+}
