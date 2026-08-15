@@ -1,3 +1,5 @@
+
+
 # dsh-science 
 [![npm version](https://img.shields.io/npm/v/dsh-science)](https://www.npmjs.com/package/dsh-science)
 [![license](https://img.shields.io/npm/l/dsh-science)](LICENSE)
@@ -43,7 +45,7 @@ available to every agent on that profile.
 ### Option B — agent preset (full 科学模式 experience, per-agent)
 
 ```bash
-git clone https://github.com/biociao/dsh-science ~/.dsh/.agent-presets/science
+git clone https://github.com/biociao/dsh-science && cd dsh-science
 # or from a local checkout:
 bash scripts/install.sh          # copy   (or: bash scripts/install.sh link)
 ```
