@@ -1,10 +1,21 @@
 {
   "name": "dsh-science",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Claude Science-style research workbench for DeepSeek Harness: ReAct research-loop engine (research_* tools), versioned artifacts with provenance (artifact_* tools), and 10 science skills for genomics / pathogens / bioinformatics.",
   "type": "module",
   "license": "MIT",
   "author": "fangchao <fangchao@genomics.cn>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/biociao/dsh-science.git"
+  },
+  "homepage": "https://github.com/biociao/dsh-science",
+  "bugs": {
+    "url": "https://github.com/biociao/dsh-science/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "keywords": [
     "dsh",
     "dsh-plugin",
@@ -21,6 +32,7 @@
   "engines": {
     "node": ">=18"
   },
+  "packageManager": "pnpm@9.15.0",
   "exports": {
     "./engines/*": "./engines/*",
     "./skills/*": "./skills/*",
@@ -44,6 +56,7 @@
   },
   "scripts": {
     "test": "node scripts/smoke-test.mjs",
+    "test:stability": "node scripts/stability-test.mjs",
     "sync": "bash scripts/sync-engines.sh"
   }
 }

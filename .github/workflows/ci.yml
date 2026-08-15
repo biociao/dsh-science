@@ -1,0 +1,56 @@
+# CI —— 分支门禁（Git Flow-lite：main / dev / feat*）
+#
+# 触发：
+#   - PR 到 dev / main
+#   - push 到 dev / main
+# 策略：
+#   - smoke + stability：所有 PR/push 都跑（快，零依赖，node 18/20）
+#   - bundle-verify（真实 dsh 加载）：只对 main（或面向 main 的 PR）跑，
+#     因为它是发布级验证且需要网络拉 profile 模板 + 安装 dsh
+#
+# 用法：开发分支推 PR 即可，无需本地跑完整套件。
+
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+
+jobs:
+  test:
+    name: Smoke + Stability (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Smoke test
+        run: node scripts/smoke-test.mjs
+      - name: Stability test
+        run: node scripts/stability-test.mjs
+
+  bundle-verify:
+    name: Bundle verify (real dsh, release-grade)
+    runs-on: ubuntu-latest
+    # node >= 22.13：dsh 0.1.0-rc.6 内部自带 pnpm 11.x（依赖 node:sqlite，node 20 不可用）
+    if: >
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'pull_request' && github.base_ref == 'main')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Enable pnpm (corepack)
+        run: corepack enable
+      - name: Install dsh CLI (pinned to verified version)
+        run: npm install -g @deepseek-ai/dsh@0.1.0-rc.6
+      - name: Verify bundle install + boot
+        run: bash test/verify-bundle.sh

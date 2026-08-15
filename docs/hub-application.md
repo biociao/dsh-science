@@ -26,7 +26,7 @@ I'd like to request adding **dsh-science** to the hub catalog.
 - **Topics:** `dsh-plugin`, `dsh-plugins`.
 - **Verification:** `node scripts/smoke-test.mjs` (23/23 checks); `bash test/verify-bundle.sh` (end-to-end bundle install + boot).
 - **Community PRs:** awesome-dsh-plugin#26, awesome-deepseek-harness#44.
-- **License:** MIT. Actively maintained (this is the v0.1.0 release; issues/PRs welcome).
+- **License:** MIT. Actively maintained (this is the v0.1.1 release; issues/PRs welcome).
 
 Happy to move the repo into the `dsh-external` org or add whatever metadata `catalog.json` needs — just let me know the process.
 
@@ -44,6 +44,6 @@ Thanks!
 - **Topics：** `dsh-plugin`、`dsh-plugins`。
 - **验证：** `node scripts/smoke-test.mjs`（23/23 通过）；`bash test/verify-bundle.sh`（端到端 bundle 安装 + boot）。
 - **社区 PR：** awesome-dsh-plugin#26、awesome-deepseek-harness#44。
-- **许可：** MIT。活跃维护中（当前为 v0.1.0，欢迎 issue/PR）。
+- **许可：** MIT。活跃维护中（当前为 v0.1.1，欢迎 issue/PR）。
 
 如需把仓库迁入 dsh-external 组织，或补充 catalog.json 所需的元数据，请告知流程，感谢！

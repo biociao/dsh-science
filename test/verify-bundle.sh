@@ -43,7 +43,11 @@ cat > "$HOME_HOME/cordis.patch.yml" <<'EOF'
   config:
     port: 0
 EOF
-dsh plugin --profile web add "git+file://$GIT_DIR" 2>&1 | grep -E "Packages|Done" || true
+# 注意：dsh 需为已验证版本（0.1.0-rc.6）；新版本可能改变 plugin add / profile 结构。
+# 不要吞掉 plugin add 的输出——失败时打印以便定位。
+ADD_OUT="$(dsh plugin --profile web add "git+file://$GIT_DIR" 2>&1 || true)"
+echo "$ADD_OUT" | grep -E "Packages|Done" || true
+echo "$ADD_OUT" | tail -6
 python3 - "$HOME_HOME/profiles/web/package.json" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))

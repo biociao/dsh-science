@@ -1,0 +1,204 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1030" viewBox="0 0 1280 1030" font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif">
+  <defs>
+    <marker id="ar-s" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#37474f"/>
+    </marker>
+    <marker id="ar-d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#8a8f98"/>
+    </marker>
+    <marker id="ar-t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#00796b"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1280" height="1040" fill="#ffffff"/>
+
+  <!-- ═══════════════ Row 1 · 用户 + DSH 宿主 ═══════════════ -->
+  <rect x="40" y="16" width="240" height="64" rx="10" fill="#fce8e6" stroke="#d93025" stroke-width="1.5"/>
+  <text x="160" y="42" text-anchor="middle" font-size="16" font-weight="700" fill="#7f1d1d">用户（科研人员）</text>
+  <text x="160" y="64" text-anchor="middle" font-size="11.5" fill="#8c3a35">DSH Web GUI 交互 · 审批授权</text>
+
+  <rect x="340" y="16" width="900" height="96" rx="10" fill="#e8f0fe" stroke="#1a73e8" stroke-width="1.5"/>
+  <text x="360" y="42" font-size="16" font-weight="700" fill="#174ea6">DSH 宿主运行时（DeepSeek Harness）</text>
+  <text x="360" y="66" font-size="12" fill="#333f55">会话 / Agent（大模型） · cordis tools 服务 · skills 注册表（自动发现 .dsh/skills）</text>
+  <text x="360" y="88" font-size="12" fill="#333f55">沙箱与审批 · 后台任务 · 目标系统 · 子代理 / 工作流 · preset 挂载点（agent 平面组合）</text>
+
+  <line x1="280" y1="48" x2="336" y2="48" stroke="#37474f" stroke-width="1.8" marker-end="url(#ar-s)"/>
+
+  <!-- ═══════════════ Row 2 · 安装形态 ═══════════════ -->
+  <rect x="40" y="136" width="560" height="100" rx="10" fill="#f3e8fd" stroke="#7627bb" stroke-width="1.5"/>
+  <text x="60" y="162" font-size="14.5" font-weight="700" fill="#4a148c">① Profile Bundle —— 全 profile 可用</text>
+  <text x="60" y="184" font-size="12" fill="#4a3a5c">dsh plugin --profile web add dsh-science</text>
+  <text x="60" y="204" font-size="12" fill="#4a3a5c">package.json dsh.bundle.patch → cordis.patch.yml</text>
+  <text x="60" y="224" font-size="12" fill="#4a3a5c">子路径导出插入引擎：dsh-science/engines/*.mjs</text>
+
+  <rect x="660" y="136" width="580" height="100" rx="10" fill="#f3e8fd" stroke="#7627bb" stroke-width="1.5"/>
+  <text x="680" y="162" font-size="14.5" font-weight="700" fill="#4a148c">② Agent Preset「科学模式」—— 按 agent 隔离</text>
+  <text x="680" y="184" font-size="12" fill="#4a3a5c">preset/agent.cordis.yml：科研人格 + 引擎 + 标准工具层</text>
+  <text x="680" y="204" font-size="12" fill="#4a3a5c">相对路径挂载 ./engines/*.mjs（preset 目录解析）</text>
+  <text x="680" y="224" font-size="12" fill="#4a3a5c">计划模式 / 压缩 / 委派 / 技能等组件预装</text>
+
+  <line x1="520" y1="112" x2="330" y2="133" stroke="#37474f" stroke-width="1.8" marker-end="url(#ar-s)"/>
+  <line x1="940" y1="112" x2="950" y2="133" stroke="#37474f" stroke-width="1.8" marker-end="url(#ar-s)"/>
+
+  <!-- ═══════════════ Row 3 · 技能层 ═══════════════ -->
+  <rect x="40" y="256" width="1200" height="80" rx="10" fill="#fef7e0" stroke="#e37400" stroke-width="1.5"/>
+  <text x="60" y="278" font-size="14" font-weight="700" fill="#8a4b00">10 个科研技能（SKILL.md，随循环按需注入工作协议）</text>
+  <text x="60" y="302" font-size="11.5" fill="#6d4c00">research-loop · science-project-setup · artifact-provenance · scientific-reviewer · literature-connector</text>
+  <text x="60" y="322" font-size="11.5" fill="#6d4c00">parallel-delegation · manuscript-writing · bioinformatics-toolkit · conda-environments · data-inventory</text>
+
+  <!-- ═══════════════ Row 4 · 引擎层 ═══════════════ -->
+  <rect x="40" y="356" width="560" height="160" rx="10" fill="#e6f4ea" stroke="#188038" stroke-width="1.5"/>
+  <text x="60" y="382" font-size="14.5" font-weight="700" fill="#0b5c23">引擎① science-research-loop（零依赖 cordis 插件）</text>
+  <text x="60" y="404" font-size="12" fill="#1b5e20">ReAct 研究循环状态机 —— research_* 工具（7 个）</text>
+  <g font-size="10.5" fill="#0b3d17">
+    <rect x="60" y="416" width="122" height="26" rx="13" fill="#c8e6c9" stroke="#4caf50" stroke-width="1"/><text x="121" y="434" text-anchor="middle">research_init</text>
+    <rect x="190" y="416" width="128" height="26" rx="13" fill="#c8e6c9" stroke="#4caf50" stroke-width="1"/><text x="254" y="434" text-anchor="middle">research_state</text>
+    <rect x="326" y="416" width="150" height="26" rx="13" fill="#c8e6c9" stroke="#4caf50" stroke-width="1"/><text x="401" y="434" text-anchor="middle">research_hypothesis</text>
+    <rect x="60" y="448" width="152" height="26" rx="13" fill="#c8e6c9" stroke="#4caf50" stroke-width="1"/><text x="136" y="466" text-anchor="middle">research_experiment</text>
+    <rect x="220" y="448" width="140" height="26" rx="13" fill="#c8e6c9" stroke="#4caf50" stroke-width="1"/><text x="290" y="466" text-anchor="middle">research_findings</text>
+    <rect x="368" y="448" width="126" height="26" rx="13" fill="#c8e6c9" stroke="#4caf50" stroke-width="1"/><text x="431" y="466" text-anchor="middle">research_phase</text>
+    <rect x="502" y="448" width="88" height="26" rx="13" fill="#c8e6c9" stroke="#4caf50" stroke-width="1"/><text x="546" y="466" text-anchor="middle">review</text>
+  </g>
+  <text x="60" y="498" font-size="11" fill="#1b5e20">inject:["tools"] → apply(ctx) 注册 · 幂等 · 自动探测项目根（.dsh/.git）</text>
+
+  <rect x="660" y="356" width="580" height="160" rx="10" fill="#e6f4ea" stroke="#188038" stroke-width="1.5"/>
+  <text x="680" y="382" font-size="14.5" font-weight="700" fill="#0b5c23">引擎② science-artifact-registry（零依赖 cordis 插件）</text>
+  <text x="680" y="404" font-size="12" fill="#1b5e20">版本化工件与溯源 —— artifact_* 工具（4 个）</text>
+  <g font-size="10.5" fill="#0b3d17">
+    <rect x="680" y="416" width="122" height="26" rx="13" fill="#c8e6c9" stroke="#4caf50" stroke-width="1"/><text x="741" y="434" text-anchor="middle">artifact_save</text>
+    <rect x="810" y="416" width="122" height="26" rx="13" fill="#c8e6c9" stroke="#4caf50" stroke-width="1"/><text x="871" y="434" text-anchor="middle">artifact_list</text>
+    <rect x="940" y="416" width="122" height="26" rx="13" fill="#c8e6c9" stroke="#4caf50" stroke-width="1"/><text x="1001" y="434" text-anchor="middle">artifact_show</text>
+    <rect x="1070" y="416" width="152" height="26" rx="13" fill="#c8e6c9" stroke="#4caf50" stroke-width="1"/><text x="1146" y="434" text-anchor="middle">artifact_reproduce</text>
+  </g>
+  <text x="680" y="498" font-size="11" fill="#1b5e20">每文件 SHA-256 · 路径越界防护 · provenance.md 追加式 · artifacts.json 全局索引</text>
+
+  <line x1="320" y1="236" x2="320" y2="353" stroke="#37474f" stroke-width="1.8" marker-end="url(#ar-s)"/>
+  <line x1="950" y1="236" x2="950" y2="353" stroke="#37474f" stroke-width="1.8" marker-end="url(#ar-s)"/>
+  <line x1="560" y1="336" x2="470" y2="353" stroke="#8a8f98" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#ar-d)"/>
+  <line x1="720" y1="336" x2="810" y2="353" stroke="#8a8f98" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#ar-d)"/>
+  <text x="640" y="332" text-anchor="middle" font-size="10.5" fill="#6b7280">技能按需注入循环协议</text>
+
+  <!-- ═══════════════ Row 5 · 持久化层 ═══════════════ -->
+  <rect x="40" y="540" width="380" height="160" rx="10" fill="#e0f2f1" stroke="#00796b" stroke-width="1.5"/>
+  <text x="60" y="566" font-size="14" font-weight="700" fill="#004d40">研究清单 research-manifest.json</text>
+  <text x="60" y="590" font-size="12" fill="#274b45">· 核心研究问题 · 假设 H1/H2…（状态机）</text>
+  <text x="60" y="610" font-size="12" fill="#274b45">· loop{phase, iteration, history}</text>
+  <text x="60" y="630" font-size="12" fill="#274b45">· 实验 E01… · 工件 · 评审</text>
+  <text x="60" y="650" font-size="12" fill="#274b45">· 阶段：literature→hypothesis→experiment</text>
+  <text x="60" y="670" font-size="12" fill="#274b45">  →analysis→manuscript→concluded</text>
+  <text x="60" y="690" font-size="11" fill="#00796b">跨会话持续（=Claude Science 的 Project）</text>
+
+  <rect x="450" y="540" width="380" height="160" rx="10" fill="#e0f2f1" stroke="#00796b" stroke-width="1.5"/>
+  <text x="470" y="566" font-size="14" font-weight="700" fill="#004d40">项目骨架目录（research_init 创建）</text>
+  <text x="470" y="590" font-size="12" fill="#274b45">experiments/&lt;id&gt;/{design.md, log.md,</text>
+  <text x="470" y="610" font-size="12" fill="#274b45">  code/, results/}</text>
+  <text x="470" y="630" font-size="12" fill="#274b45">literature/ · analyses/ · figures/</text>
+  <text x="470" y="650" font-size="12" fill="#274b45">manuscript/ · reviews/ · data/ · envs/</text>
+  <text x="470" y="670" font-size="12" fill="#274b45">README.md · .gitignore（data/ 不入库）</text>
+  <text x="470" y="690" font-size="11" fill="#00796b">自动探测项目根（.dsh / .git 标记）</text>
+
+  <rect x="860" y="540" width="380" height="160" rx="10" fill="#e0f2f1" stroke="#00796b" stroke-width="1.5"/>
+  <text x="880" y="566" font-size="14" font-weight="700" fill="#004d40">版本化工件 artifacts/&lt;name&gt;/</text>
+  <text x="880" y="590" font-size="12" fill="#274b45">v1/ v2/ … 每次保存一个新版本</text>
+  <text x="880" y="610" font-size="12" fill="#274b45">artifact.json：命令/输入/备注/环境</text>
+  <text x="880" y="630" font-size="12" fill="#274b45">provenance.md：追加式溯源日志</text>
+  <text x="880" y="650" font-size="12" fill="#274b45">artifacts.json：全局索引</text>
+  <text x="880" y="670" font-size="12" fill="#274b45">每文件 SHA-256（复现一致性校验）</text>
+  <text x="880" y="690" font-size="11" fill="#00796b">=Claude Science 的 Artifacts + Provenance</text>
+
+  <line x1="230" y1="516" x2="230" y2="537" stroke="#37474f" stroke-width="1.8" marker-end="url(#ar-s)"/>
+  <text x="242" y="531" font-size="10.5" fill="#37474f">research_* 读写</text>
+  <line x1="470" y1="516" x2="600" y2="537" stroke="#8a8f98" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#ar-d)"/>
+  <text x="508" y="531" font-size="10.5" fill="#6b7280">创建骨架</text>
+  <line x1="950" y1="516" x2="1050" y2="537" stroke="#37474f" stroke-width="1.8" marker-end="url(#ar-s)"/>
+  <text x="1030" y="531" font-size="10.5" fill="#37474f">artifact_* 读写</text>
+
+  <line x1="420" y1="610" x2="448" y2="610" stroke="#8a8f98" stroke-width="1.5" stroke-dasharray="6 4" marker-start="url(#ar-d)" marker-end="url(#ar-d)"/>
+  <text x="434" y="602" text-anchor="middle" font-size="10" fill="#6b7280">登记/回写</text>
+  <line x1="830" y1="660" x2="858" y2="660" stroke="#8a8f98" stroke-width="1.5" stroke-dasharray="6 4" marker-start="url(#ar-d)" marker-end="url(#ar-d)"/>
+  <text x="844" y="652" text-anchor="middle" font-size="10" fill="#6b7280">结果归档</text>
+
+  <!-- ═══════════════ Row 6 · 支撑机制 ═══════════════ -->
+  <rect x="40" y="724" width="290" height="140" rx="10" fill="#fff3e0" stroke="#ef6c00" stroke-width="1.5"/>
+  <text x="60" y="750" font-size="13.5" font-weight="700" fill="#a03a00">评审机制 Reviewer</text>
+  <text x="60" y="772" font-size="11.5" fill="#5d4037">scientific-reviewer 技能：提取论断</text>
+  <text x="60" y="792" font-size="11.5" fill="#5d4037">subagent_fork 只读评审子代理</text>
+  <text x="60" y="812" font-size="11.5" fill="#5d4037">对照执行记录核查（日志/溯源/代码）</text>
+  <text x="60" y="832" font-size="11.5" fill="#5d4037">research_review 归档 reviews/R0n/</text>
+  <text x="60" y="854" font-size="11" fill="#ef6c00">=Claude Science 的 Reviewer</text>
+
+  <rect x="342" y="724" width="290" height="140" rx="10" fill="#fff3e0" stroke="#ef6c00" stroke-width="1.5"/>
+  <text x="362" y="750" font-size="13.5" font-weight="700" fill="#a03a00">并行委派 Delegation</text>
+  <text x="362" y="772" font-size="11.5" fill="#5d4037">parallel-delegation 技能：拆轨道</text>
+  <text x="362" y="792" font-size="11.5" fill="#5d4037">subagent 后台并行（自包含 prompt）</text>
+  <text x="362" y="812" font-size="11.5" fill="#5d4037">analyses/tracks/ 独立目录</text>
+  <text x="362" y="832" font-size="11.5" fill="#5d4037">合并 SUMMARY.md → artifact_save</text>
+  <text x="362" y="854" font-size="11" fill="#ef6c00">=Claude Science 的 Delegation</text>
+
+  <rect x="644" y="724" width="290" height="140" rx="10" fill="#fff3e0" stroke="#ef6c00" stroke-width="1.5"/>
+  <text x="664" y="750" font-size="13.5" font-weight="700" fill="#a03a00">文献连接器 Literature</text>
+  <text x="664" y="772" font-size="11.5" fill="#5d4037">literature-connector 技能</text>
+  <text x="664" y="792" font-size="11.5" fill="#5d4037">web_search 检索 + 笔记</text>
+  <text x="664" y="812" font-size="11.5" fill="#5d4037">literature/ + references.bib</text>
+  <text x="664" y="832" font-size="11.5" fill="#5d4037">引用可回溯到来源</text>
+  <text x="664" y="854" font-size="11" fill="#ef6c00">=Claude Science 的 Literature access</text>
+
+  <rect x="946" y="724" width="290" height="140" rx="10" fill="#fff3e0" stroke="#ef6c00" stroke-width="1.5"/>
+  <text x="966" y="750" font-size="13.5" font-weight="700" fill="#a03a00">环境与数据 Env / Data</text>
+  <text x="966" y="772" font-size="11.5" fill="#5d4037">conda-environments 技能</text>
+  <text x="966" y="792" font-size="11.5" fill="#5d4037">环境导出 yaml/lock → envs/</text>
+  <text x="966" y="812" font-size="11.5" fill="#5d4037">data-inventory：来源/校验值/授权</text>
+  <text x="966" y="832" font-size="11.5" fill="#5d4037">data/ 不入版本库 · 复现时恢复</text>
+  <text x="966" y="854" font-size="11" fill="#ef6c00">=Claude Science 的 Sandbox/Env</text>
+
+  <line x1="200" y1="700" x2="188" y2="721" stroke="#8a8f98" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#ar-d)"/>
+  <text x="150" y="712" font-size="10" fill="#6b7280">关键论断</text>
+  <line x1="520" y1="700" x2="487" y2="721" stroke="#8a8f98" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#ar-d)"/>
+  <text x="455" y="712" font-size="10" fill="#6b7280">独立任务</text>
+  <line x1="700" y1="700" x2="789" y2="721" stroke="#8a8f98" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#ar-d)"/>
+  <text x="660" y="712" font-size="10" fill="#6b7280">文献目录</text>
+  <line x1="1060" y1="700" x2="1091" y2="721" stroke="#8a8f98" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#ar-d)"/>
+  <text x="1020" y="712" font-size="10" fill="#6b7280">复现</text>
+
+  <!-- ═══════════════ Row 7 · ReAct 研究循环 ═══════════════ -->
+  <rect x="40" y="888" width="1200" height="116" rx="10" fill="#f5f5f5" stroke="#616161" stroke-width="1.5"/>
+  <text x="640" y="910" text-anchor="middle" font-size="14" font-weight="700" fill="#212121">ReAct 研究循环（每轮迭代 = Reason → Act → Observe，结果落盘 research-manifest.json，跨会话持续）</text>
+
+  <g font-size="11" fill="#263238">
+    <rect x="60" y="922" width="128" height="46" rx="8" fill="#eceff1" stroke="#37474f" stroke-width="1.2"/><text x="124" y="941" text-anchor="middle" font-weight="700">① 提问</text><text x="124" y="957" text-anchor="middle">Question</text>
+    <rect x="206" y="922" width="128" height="46" rx="8" fill="#eceff1" stroke="#37474f" stroke-width="1.2"/><text x="270" y="941" text-anchor="middle" font-weight="700">② 假设</text><text x="270" y="957" text-anchor="middle">Hypothesis</text>
+    <rect x="352" y="922" width="128" height="46" rx="8" fill="#eceff1" stroke="#37474f" stroke-width="1.2"/><text x="416" y="941" text-anchor="middle" font-weight="700">③ 实验</text><text x="416" y="957" text-anchor="middle">Experiment</text>
+    <rect x="498" y="922" width="128" height="46" rx="8" fill="#eceff1" stroke="#37474f" stroke-width="1.2"/><text x="562" y="941" text-anchor="middle" font-weight="700">④ 行动</text><text x="562" y="957" text-anchor="middle">Act 写码/跑</text>
+    <rect x="644" y="922" width="128" height="46" rx="8" fill="#eceff1" stroke="#37474f" stroke-width="1.2"/><text x="708" y="941" text-anchor="middle" font-weight="700">⑤ 观察</text><text x="708" y="957" text-anchor="middle">Observe</text>
+    <rect x="790" y="922" width="128" height="46" rx="8" fill="#eceff1" stroke="#37474f" stroke-width="1.2"/><text x="854" y="941" text-anchor="middle" font-weight="700">⑥ 分析</text><text x="854" y="957" text-anchor="middle">Analyze</text>
+    <rect x="936" y="922" width="128" height="46" rx="8" fill="#eceff1" stroke="#37474f" stroke-width="1.2"/><text x="1000" y="941" text-anchor="middle" font-weight="700">⑦ 结论</text><text x="1000" y="957" text-anchor="middle">Conclude</text>
+    <rect x="1082" y="922" width="128" height="46" rx="8" fill="#b2dfdb" stroke="#00796b" stroke-width="1.2"/><text x="1146" y="941" text-anchor="middle" font-weight="700">⑧ 下一问</text><text x="1146" y="957" text-anchor="middle">Next Question</text>
+  </g>
+
+  <g stroke="#00796b" stroke-width="1.8" marker-end="url(#ar-t)">
+    <line x1="188" y1="945" x2="203" y2="945"/>
+    <line x1="334" y1="945" x2="349" y2="945"/>
+    <line x1="480" y1="945" x2="495" y2="945"/>
+    <line x1="626" y1="945" x2="641" y2="945"/>
+    <line x1="772" y1="945" x2="787" y2="945"/>
+    <line x1="918" y1="945" x2="933" y2="945"/>
+    <line x1="1064" y1="945" x2="1079" y2="945"/>
+  </g>
+  <path d="M 1146 968 V 986 H 124 V 980" fill="none" stroke="#00796b" stroke-width="1.8" marker-end="url(#ar-t)"/>
+  <text x="640" y="982" text-anchor="middle" font-size="10.5" fill="#00796b">下一轮迭代（research_findings 的 nextQuestion / research_phase 推进阶段）</text>
+
+  <!-- ═══════════════ 图例 ═══════════════ -->
+  <text x="40" y="1012" font-size="11.5" fill="#37474f">
+    <tspan font-weight="700">图例：</tspan>
+    <tspan fill="#37474f">— 实线 = 挂载 / 调用 / 读写</tspan>
+    <tspan fill="#8a8f98">　- - 虚线 = 按需触发 / 归档 / 回写</tspan>
+    <tspan fill="#1a73e8">　■ 蓝 = DSH 宿主</tspan>
+    <tspan fill="#7627bb">　■ 紫 = 安装形态</tspan>
+    <tspan fill="#188038">　■ 绿 = 引擎</tspan>
+    <tspan fill="#e37400">　■ 黄 = 技能</tspan>
+    <tspan fill="#00796b">　■ 青 = 持久化 / 循环</tspan>
+    <tspan fill="#ef6c00">　■ 橙 = 支撑机制</tspan>
+  </text>
+</svg>

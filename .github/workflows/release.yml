@@ -1,0 +1,97 @@
+# Release —— 打 tag 自动发布（Git Flow-lite）
+#
+# 触发：push tag v*（如 v0.1.1）。tag 即版本锚点，须与 package.json version 一致。
+# 流程（全部自动化，人工只需打 tag）：
+#   1. 测试门禁：smoke(62) + stability(25) + bundle-verify（真实 dsh 加载）
+#   2. 校验 tag 与 package.json 版本一致
+#   3. pnpm pack 出 dsh-science-<ver>.tgz + SHA256SUMS
+#   4. npm publish（NODE_AUTH_TOKEN = npmjs access token，仓库 secret）
+#   5. 创建 GitHub Release：附 tgz + 校验和 + 自动 release notes
+#
+# 首次使用前：在仓库 Settings → Secrets and variables → Actions 添加
+#   NPM_TOKEN（npmjs.com access token，publish 权限）。
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # 创建 GitHub Release 需要
+
+jobs:
+  test:
+    name: Smoke + Stability (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: node scripts/smoke-test.mjs
+      - run: node scripts/stability-test.mjs
+
+  bundle-verify:
+    name: Bundle verify (real dsh)
+    runs-on: ubuntu-latest
+    # node >= 22.13：dsh 0.1.0-rc.6 内部自带 pnpm 11.x（依赖 node:sqlite，node 20 不可用）
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Enable pnpm (corepack)
+        run: corepack enable
+      - name: Install dsh CLI (pinned to verified version)
+        run: npm install -g @deepseek-ai/dsh@0.1.0-rc.6
+      - name: Verify bundle install + boot
+        run: bash test/verify-bundle.sh
+
+  publish:
+    name: Publish npm + GitHub Release
+    needs: [test, bundle-verify]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+      - name: Enable pnpm (corepack)
+        run: corepack enable
+      - name: Verify tag matches package version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VER="v$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$VER" ]; then
+            echo "::error::tag $TAG 与 package.json 版本 $VER 不一致，拒绝发布"
+            exit 1
+          fi
+          echo "版本一致：$TAG"
+      - name: Pack tarball
+        run: |
+          mkdir -p dist
+          pnpm pack --pack-destination dist
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum *.tgz > SHA256SUMS
+          cat SHA256SUMS
+      - name: Publish to npm
+        run: pnpm publish --no-git-checks --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tgz
+            dist/SHA256SUMS
+          generate_release_notes: true
