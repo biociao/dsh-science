@@ -32,6 +32,7 @@
   "engines": {
     "node": ">=18"
   },
+  "packageManager": "pnpm@9.15.0",
   "exports": {
     "./engines/*": "./engines/*",
     "./skills/*": "./skills/*",
