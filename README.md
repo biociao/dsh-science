@@ -10,11 +10,21 @@
 
 > One-liner: **dsh-science** — Claude Science-style research workbench for DSH: ReAct research-loop engine (research_* tools), versioned artifacts with provenance (artifact_* tools), and 10 science skills for genomics / pathogens / bioinformatics.
 
-- **ReAct research loop engine** — `research_init` / `research_state` / `research_hypothesis` / `research_experiment` / `research_findings` / `research_phase` / `research_review`, persisted in a `research-manifest.json` state machine (Question → Hypothesis → Experiment → Observe → Analyze → Conclude → Next Question).
-- **Versioned artifacts with provenance** — `artifact_save` / `artifact_list` / `artifact_show` / `artifact_reproduce`: every result saved as `artifacts/<name>/v<N>/` with per-file SHA-256, `artifact.json` provenance (command / inputs / notes / environment) and an append-only `provenance.md`.
+- **ReAct research loop engine** — `research_init` / `research_state` / `research_hypothesis` / `research_experiment` / `research_findings` / `research_phase` / `research_review` / `research_report`, persisted in a `research-manifest.json` state machine (Question → Hypothesis → Experiment → Observe → Analyze → Conclude → Next Question).
+- **Versioned artifacts with provenance** — `artifact_save` / `artifact_list` / `artifact_show` / `artifact_diff` / `artifact_verify` / `artifact_deprecate` / `artifact_reproduce`: every result saved as `artifacts/<name>/v<N>/` with per-file SHA-256, `artifact.json` provenance (command / inputs / environment / envFile) and an append-only `provenance.md`.
 - **10 science skills** — research-loop, science-project-setup, artifact-provenance, scientific-reviewer, literature-connector, parallel-delegation, manuscript-writing, bioinformatics-toolkit, conda-environments, data-inventory.
 
-Both engine plugins are **zero-dependency** (Node built-ins only) and register plain cordis tools. Installable either as a profile bundle (`dsh plugin add`) or as an agent preset (`科学模式`).
+Both engine plugins are **zero-dependency** (Node built-ins only, sharing `engines/core.mjs`) and register plain cordis tools. Installable either as a profile bundle (`dsh plugin add`) or as an agent preset (`科学模式`).
+
+### v0.1.1 hardening (robustness update)
+
+- **Concurrency-safe state**: all manifest/artifact writes go through a lightweight file lock (O_EXCL + stale reclaim) and atomic tmp+rename — parallel subagents can no longer corrupt or lose updates on `research-manifest.json` / `artifacts.json`.
+- **Structured error codes** (`ERR_NOT_INIT` / `ERR_NOT_FOUND` / `ERR_VALIDATION` / `ERR_PATH` / `ERR_QUOTA` / `ERR_LOCK_TIMEOUT` / `ERR_IO`) instead of opaque strings.
+- **Hypothesis state machine** (proposed → testing → supported/refuted/inconclusive) and **forward-only phase transitions** (rewind requires config).
+- **manifest ↔ artifacts linked**: `research_state` merges the artifact index; `artifact_save` writes back to the manifest.
+- **Manifest schema v1→v2 migration** on load, persisted on next write.
+- **Artifact upgrades**: streaming SHA-256 (big files), identical-content dedup via hardlink, `artifact_diff` / `artifact_verify` / `artifact_deprecate`, envFile + input hashes in provenance.
+- **Structured JSON outputs** (`research_report`, `artifact_diff`, `artifact_verify`) and an audit log at `<root>/.science.log`.
 
 ## Install
 
@@ -71,6 +81,7 @@ dsh-science/
 ├── package.json          # dsh.bundle.patch -> ./cordis.patch.yml (+ exports)
 ├── cordis.patch.yml      # bundle patch: inserts the two engines by subpath export
 ├── engines/              # canonical engine sources (bundle form)
+│   ├── core.mjs          #   shared core: locks, atomic writes, error codes, streaming sha256, structured tools, audit
 │   ├── research-loop.mjs
 │   └── artifact-registry.mjs
 ├── preset/               # agent-preset form (mirrors engines/ via sync-engines.sh)
@@ -83,19 +94,21 @@ dsh-science/
 │   ├── install-skills.sh # install skills -> ~/.dsh/skills
 │   ├── sync-engines.sh   # mirror engines/ -> preset/engines/
 │   ├── init-project.sh   # project skeleton without a science session
-│   └── smoke-test.mjs    # 23 checks against a temp workspace (node >= 18)
+│   ├── smoke-test.mjs    # 62 checks against a temp workspace (node >= 18)
+│   └── stability-test.mjs# 25 concurrency/atomicity/stress checks (locks, lost-update, soak, migration)
 └── test/verify-bundle.sh # isolated end-to-end bundle install + boot check
 ```
 
 ## Verification
 
 ```bash
-node scripts/smoke-test.mjs     # engine logic + end-to-end loop against a temp workspace
-bash test/verify-bundle.sh      # pnpm pack -> isolated profile -> install -> boot check
+node scripts/smoke-test.mjs       # engine logic + end-to-end loop + error codes + migration
+node scripts/stability-test.mjs   # concurrency / atomicity / lock / stress stability checks
+bash test/verify-bundle.sh        # pnpm pack -> isolated profile -> install -> boot check
 ```
 
-Both are part of the release checklist and are safe to run in CI (the smoke test
-writes only to a temp workspace; the bundle test uses an isolated `$DSH_HOME`).
+All are part of the release checklist and are safe to run in CI (both test scripts
+write only to a temp workspace; the bundle test uses an isolated `$DSH_HOME`).
 
 ## FAQ
 
@@ -122,9 +135,14 @@ them machine-wide in `~/.dsh/skills` (respecting `$DSH_HOME`).
 
 ## Development
 
+Branching model & release workflow (main = release, dev = integration, `feat/*` = features,
+tag-triggered npm publish + GitHub Release via Actions): see
+[docs/branching.md](docs/branching.md).
+
 ```bash
 bash scripts/sync-engines.sh    # after editing engines/*.mjs — keeps preset/engines in sync
 node scripts/smoke-test.mjs     # logic + static package checks
+node scripts/stability-test.mjs # concurrency / atomicity / lock stability checks
 bash test/verify-bundle.sh      # end-to-end bundle install + boot
 ```
 

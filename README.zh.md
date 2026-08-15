@@ -9,12 +9,22 @@
 
 > 一句话介绍：**dsh-science** —— 面向 DSH 的 Claude Science 式科研工作台：ReAct 研究循环引擎（research_* 工具）、带溯源的版本化工件（artifact_* 工具），以及面向基因组/病原体/生物信息的 10 个科研技能。
 
-- **ReAct 研究循环引擎** —— `research_init` / `research_state` / `research_hypothesis` / `research_experiment` / `research_findings` / `research_phase` / `research_review`，状态持久化在 `research-manifest.json`（提问 → 假设 → 实验 → 观察 → 分析 → 结论 → 下一问题）。
-- **版本化工件与溯源** —— `artifact_save` / `artifact_list` / `artifact_show` / `artifact_reproduce`：结果存为 `artifacts/<name>/v<N>/`，附每文件 SHA-256、`artifact.json` 溯源（命令/输入/备注/环境）与追加式 `provenance.md`。
+- **ReAct 研究循环引擎** —— `research_init` / `research_state` / `research_hypothesis` / `research_experiment` / `research_findings` / `research_phase` / `research_review` / `research_report`，状态持久化在 `research-manifest.json`（提问 → 假设 → 实验 → 观察 → 分析 → 结论 → 下一问题）。
+- **版本化工件与溯源** —— `artifact_save` / `artifact_list` / `artifact_show` / `artifact_diff` / `artifact_verify` / `artifact_deprecate` / `artifact_reproduce`：结果存为 `artifacts/<name>/v<N>/`，附每文件 SHA-256、`artifact.json` 溯源（命令/输入/环境/envFile）与追加式 `provenance.md`。
 - **10 个科研技能** —— research-loop、science-project-setup、artifact-provenance、scientific-reviewer、literature-connector、parallel-delegation、manuscript-writing、bioinformatics-toolkit、conda-environments、data-inventory。
 
-两个引擎插件**零第三方依赖**（只用 Node 内置模块），注册标准 cordis 工具。
+两个引擎插件**零第三方依赖**（只用 Node 内置模块，共享 `engines/core.mjs`），注册标准 cordis 工具。
 既可作 profile bundle 安装（`dsh plugin add`），也可作 agent preset（「科学模式」）安装。
+
+### v0.1.1 加固（鲁棒性更新）
+
+- **并发安全**：manifest / 工件所有写操作经轻量文件锁（O_EXCL + 陈旧回收）串行 + 原子写（tmp+rename）——并行子代理不再互相覆盖 `research-manifest.json` / `artifacts.json`。
+- **结构化错误码**：`ERR_NOT_INIT` / `ERR_NOT_FOUND` / `ERR_VALIDATION` / `ERR_PATH` / `ERR_QUOTA` / `ERR_LOCK_TIMEOUT` / `ERR_IO`，不再吞成无类型字符串。
+- **假设状态机**（proposed → testing → supported/refuted/inconclusive）与**阶段只前进**（回退需配置 allowPhaseRewind）。
+- **manifest ↔ 工件打通**：`research_state` 实时合并工件索引；`artifact_save` 回写清单 artifacts[]。
+- **清单 schema v1→v2 迁移**（加载时迁移，下次写入持久化）。
+- **工件升级**：流式 SHA-256（大文件）、相同内容硬链接去重、`artifact_diff` / `artifact_verify` / `artifact_deprecate`、envFile 与输入哈希溯源。
+- **结构化 JSON 输出**（`research_report` / `artifact_diff` / `artifact_verify`）与审计日志 `<root>/.science.log`。
 
 ## 安装
 
@@ -62,6 +72,7 @@ dsh-science/
 ├── package.json          # dsh.bundle.patch -> ./cordis.patch.yml（含 exports）
 ├── cordis.patch.yml      # bundle patch：按子路径导出插入两个引擎
 ├── engines/              # 引擎源（bundle 形态）
+│   ├── core.mjs          #   共享核心：锁/原子写/错误码/流式哈希/结构化工具/审计
 │   ├── research-loop.mjs
 │   └── artifact-registry.mjs
 ├── preset/               # agent-preset 形态（engines 镜像，用 sync-engines.sh 同步）
@@ -74,18 +85,20 @@ dsh-science/
 │   ├── install-skills.sh # 安装技能 -> ~/.dsh/skills
 │   ├── sync-engines.sh   # 镜像 engines/ -> preset/engines/
 │   ├── init-project.sh   # 项目骨架（无需科学模式会话）
-│   └── smoke-test.mjs    # 23 项检查（临时工作区，node >= 18）
+│   ├── smoke-test.mjs    # 62 项检查（临时工作区，node >= 18）
+│   └── stability-test.mjs# 25 项并发/原子性/压力检查（锁/丢失更新/soak/迁移）
 └── test/verify-bundle.sh # 隔离端到端 bundle 安装 + boot 检查
 ```
 
 ## 验证
 
 ```bash
-node scripts/smoke-test.mjs     # 引擎逻辑 + 端到端循环（临时工作区）
+node scripts/smoke-test.mjs     # 引擎逻辑 + 端到端循环 + 错误码 + 迁移
+node scripts/stability-test.mjs # 并发 / 原子性 / 锁 / 压力稳定性检查
 bash test/verify-bundle.sh      # pnpm pack -> 隔离 profile -> 安装 -> boot 检查
 ```
 
-两项均为发布检查清单内容，可在 CI 安全运行（smoke-test 只写临时工作区；bundle 测试用隔离的 `$DSH_HOME`）。
+三项均为发布检查清单内容，可在 CI 安全运行（两个测试脚本只写临时工作区；bundle 测试用隔离的 `$DSH_HOME`）。
 
 ## FAQ
 
@@ -109,9 +122,13 @@ profile 加载器把行的 `name` 按 **profile 目录**解析（不是包目录
 
 ## 开发
 
+分支模型与发布流程（main=发布 / dev=集成 / feat\*=新功能，tag 触发 npm 发布 + GitHub Release）：
+见 [docs/branching.md](docs/branching.md)。
+
 ```bash
 bash scripts/sync-engines.sh    # 修改 engines/*.mjs 后运行——保持 preset/engines 同步
 node scripts/smoke-test.mjs     # 逻辑 + 静态包校验
+node scripts/stability-test.mjs # 并发 / 原子性 / 锁稳定性检查
 bash test/verify-bundle.sh      # 端到端 bundle 安装 + boot
 ```
 
