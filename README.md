@@ -146,6 +146,18 @@ node scripts/stability-test.mjs # concurrency / atomicity / lock stability check
 bash test/verify-bundle.sh      # end-to-end bundle install + boot
 ```
 
+**Workspace-isolation patch** — DSH's New Session used to fall back to the most
+recently used Workspace, letting automation spawn sessions into unrelated
+projects. `scripts/patch-session-isolation.mjs` applies the one-line guard
+(idempotent, backs up first; re-apply after every `dsh` upgrade). See
+[docs/workspace-isolation.md](docs/workspace-isolation.md).
+
+```bash
+node scripts/patch-session-isolation.mjs apply   # idempotent, backs up first
+node scripts/patch-session-isolation.mjs status  # check current state
+node scripts/patch-session-isolation.mjs revert  # restore pristine file
+```
+
 ## Community
 
 - Topic: [github.com/topics/dsh-plugin](https://github.com/topics/dsh-plugin)
