@@ -25,7 +25,7 @@ feat/b ──┼──▶ PR ──▶ dev ──▶ PR(发布) ──▶ main �
 | 阶段 | 跑什么 | 在哪跑 |
 |------|--------|--------|
 | 提交 / feat 分支 | 本地 `node scripts/smoke-test.mjs`（快） | 开发者本机 |
-| PR → `dev` | smoke(62) + stability(25)，node 18/20 | CI（`ci.yml`） |
+| PR → `dev` | smoke(161) + stability(25)，node 18/20 | CI（`ci.yml`） |
 | PR → `main` / push main | 上述两项 + **bundle-verify**（真实 dsh 隔离安装 + boot） | CI（`ci.yml`） |
 | tag `v*`（发布） | 全量：两项测试 + bundle-verify + tag/版本一致性 | CI（`release.yml`） |
 

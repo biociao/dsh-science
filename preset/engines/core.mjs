@@ -11,6 +11,7 @@
 
 import { promises as fsp, existsSync, createReadStream } from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { createHash } from "node:crypto";
 
 // ── 时间与等待 ──────────────────────────────────────────────────────────────
@@ -28,6 +29,12 @@ export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // ERR_QUOTA        超过大小配额
 // ERR_LOCK_TIMEOUT 等待文件锁超时
 // ERR_CONFLICT     并发冲突
+// ERR_HOST         主机未注册/未知（remote-compute）
+// ERR_SSH          ssh/scp 执行失败（remote-compute）
+// ERR_ACCESS       主机未获本项目授权或审批被拒（remote-compute）
+// ERR_LIMIT        并发上限等资源限制（remote-compute）
+// ERR_APPROVAL     审批流程失败/被拒（remote-compute）
+// ERR_REMOTE       远程端异常（remote-compute）
 
 export function sciErr(code, msg) {
   const e = new Error(`[${code}] ${msg}`);
@@ -68,9 +75,12 @@ export function asList(v) {
 
 // ── 项目根探测 ──────────────────────────────────────────────────────────────
 
+// dsh 的会话工作目录在 SessionHeader 上（agent.session.header.cwd），
+// Session 对象本身没有 cwd 访问器。旧代码读 agent.session.cwd（不存在），
+// 导致永远回退 process.cwd()（宿主进程启动目录，如 ~），项目根随之错位。
 export function resolveCwd(exec) {
   try {
-    const c = exec?.agent?.session?.cwd;
+    const c = exec?.agent?.session?.header?.cwd ?? exec?.agent?.session?.cwd;
     if (typeof c === "string" && c.length > 0) return c;
   } catch {
     /* 忽略 */
@@ -78,14 +88,21 @@ export function resolveCwd(exec) {
   return process.cwd();
 }
 
+// 注意：~/.dsh 是 DSH 自身的配置主目录（DSH_HOME 默认值），不是项目标记。
+// 若把 HOME 当作项目根，任何从 home 下出发且路径上没有 .git/.dsh 的探测都会
+// 命中 ~/.dsh，把整个 home 当成"项目"并在其中脚手架目录。因此 HOME 永不
+// 作为自动探测的项目根（确需以 home 为根时显式传 root 参数）。
 export function findProjectRoot(start, markers) {
   let dir = path.resolve(start);
+  const home = os.homedir();
   for (;;) {
-    for (const m of markers) {
-      try {
-        if (existsSync(path.join(dir, m))) return dir;
-      } catch {
-        /* 忽略 */
+    if (dir !== home) {
+      for (const m of markers) {
+        try {
+          if (existsSync(path.join(dir, m))) return dir;
+        } catch {
+          /* 忽略 */
+        }
       }
     }
     const parent = path.dirname(dir);

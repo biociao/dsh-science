@@ -10,13 +10,13 @@ SRC="$ROOT/engines"
 DST="$ROOT/preset/engines"
 
 mkdir -p "$DST"
-for f in core.mjs research-loop.mjs artifact-registry.mjs; do
+for f in core.mjs research-loop.mjs artifact-registry.mjs remote-compute.mjs; do
   [ -f "$SRC/$f" ] || { echo "错误：缺少 $SRC/$f" >&2; exit 1; }
   cp "$SRC/$f" "$DST/$f"
 done
 
 # 校验一致
-for f in core.mjs research-loop.mjs artifact-registry.mjs; do
+for f in core.mjs research-loop.mjs artifact-registry.mjs remote-compute.mjs; do
   a=$(shasum -a 256 "$SRC/$f" | awk '{print $1}')
   b=$(shasum -a 256 "$DST/$f" | awk '{print $1}')
   [ "$a" = "$b" ] || { echo "错误：$f 同步后不一致" >&2; exit 1; }

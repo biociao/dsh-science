@@ -1,7 +1,7 @@
 {
   "name": "dsh-science",
-  "version": "0.1.1",
-  "description": "Claude Science-style research workbench for DeepSeek Harness: ReAct research-loop engine (research_* tools), versioned artifacts with provenance (artifact_* tools), and 10 science skills for genomics / pathogens / bioinformatics.",
+  "version": "0.2.0",
+  "description": "Claude Science-style research workbench for DeepSeek Harness: ReAct research-loop engine (research_* tools), versioned artifacts with provenance (artifact_* tools), SSH remote-compute engine for long bioinformatics jobs on workstations/HPC (remote_* tools), and 11 science skills for genomics / pathogens / bioinformatics. Ships the tiered cross-provider model router via the companion dsh-model-tier bundle.",
   "type": "module",
   "license": "MIT",
   "author": "fangchao <fangchao@genomics.cn>",
@@ -27,20 +27,29 @@
     "reproducibility",
     "genomics",
     "pathogen",
-    "bioinformatics"
+    "bioinformatics",
+    "remote-compute",
+    "ssh",
+    "hpc",
+    "slurm"
   ],
   "engines": {
     "node": ">=18"
   },
   "packageManager": "pnpm@9.15.0",
+  "main": "./engines/remote-hosts-ui.mjs",
   "exports": {
+    ".": "./engines/remote-hosts-ui.mjs",
     "./engines/*": "./engines/*",
     "./skills/*": "./skills/*",
     "./preset/*": "./preset/*",
+    "./client": "./client/remote-hosts-ui/lib/client.js",
+    "./client/*": "./client/*",
     "./package.json": "./package.json"
   },
   "files": [
     "engines",
+    "client",
     "preset",
     "skills",
     "scripts",
@@ -49,14 +58,24 @@
     "README.zh.md",
     "LICENSE"
   ],
+  "dependencies": {
+    "react": "^18.2.0",
+    "dsh-model-tier": "^0.1.0"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": ["@deepseek-ai/dsh-client-runtime", "@deepseek-ai/dsh-client-ui-settings"]
     }
   },
   "scripts": {
-    "test": "node scripts/smoke-test.mjs",
+    "test": "node scripts/smoke-test.mjs && node packages/dsh-model-tier/test/model-tier.test.mjs",
     "test:stability": "node scripts/stability-test.mjs",
-    "sync": "bash scripts/sync-engines.sh"
+    "sync": "bash scripts/sync-engines.sh",
+    "build:client": "node scripts/build-client-bundle.mjs",
+    "check:client": "node scripts/build-client-bundle.mjs --check"
   }
 }

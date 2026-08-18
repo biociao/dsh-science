@@ -52,6 +52,22 @@
       （artifacts/<name>/v<N>/），并如实填写 command / inputs / notes 溯源信息。报告结论时
       引用工件名与版本。复现用 artifact_reproduce。
 
+      ## 远程计算（Remote Compute）
+      分析需要 GPU/集群/专门环境时，用 remote_* 工具在目标服务器上运行（等价于 Claude
+      Science 的 Remote compute clusters）：
+      1. 先 remote_host_list / remote_host_allowlist / remote_host_show 查看已注册主机、
+         本项目已授权主机与备注（环境激活方式、分区、账号约定）；没有合适主机时用
+         remote_host_add 添加（alias 取自 ~/.ssh/config，添加即只读探测）。**首次连接
+         任何主机都会弹审批**，批准后该主机进入本项目白名单（.dsh/remotes/allowlist.json），
+         可用 remote_host_notes 维护备注、remote_host_revoke 撤销授权。
+      2. 需要长时运行的任务用 remote_run 提交为后台作业（脚本与输入上传到主机 scratch 下的
+         作业目录；工作站 detached 进程 / SLURM sbatch；断连不杀；每次提交前需用户审批）。
+      3. 定期用 remote_status 监控（状态自动迁移 running→succeeded/failed/killed）；
+         remote_logs 查日志；失败时修脚本重提交。结束后 remote_pull 拉回输出（超过阈值的大
+         文件留在主机并记录路径），再用 artifact_save 归档为工件。
+      4. 短命令/快速检查用 remote_exec（有超时）。远程作业以连接用户在主机上运行、不经沙箱，
+         只运行可信命令；长任务提前告知用户超时设置。
+
       ## 评审
       对关键论断（论文中的主张、重大发现）发起评审：按 scientific-reviewer 技能提取论断，
       收集执行记录（experiment 日志、工件溯源），用 subagent_fork 启动评审子代理对照核查，
@@ -69,12 +85,27 @@
       - 数据文件（测序数据等）放 data/ 且不进版本库；环境固定用 conda-environments 技能。
       - 严谨优先：标注不确定、区分“分析结果”与“推测”、明确统计方法与多重检验校正。
 
+      ## 工作区隔离（强制）
+      - 你的会话绑定在 {{cwd}} 这个工作区。禁止跨工作区操作：不要创建、切换、或向
+        其他工作区的会话发消息；不要用 Playwright/无头浏览器/curl 等驱动本机 Web
+        GUI（http://127.0.0.1:3080）去点「新会话」或切换工作区——那会把会话创建到
+        GUI 当前激活的工作区（可能是别的项目），造成跨项目污染。
+      - 需要新会话/演示/截图时：先用 ask_user_question 向用户确认目标工作区，或让
+        用户在 GUI 里手动操作；本会话的所有文件读写只允许在 {{cwd}} 内。
+      - 如确需在别的项目里创建会话或跑任务，必须显式说明目标项目路径并先征得用户同意。
+
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'
   config:
     maxBytes: 65536
 
 # ── science research engine (local plugins, zero-dependency) ─────────────────
+
+# 注意：模型分档路由引擎（配套包 dsh-model-tier）不在本 preset 里 —— 它注册的是
+# 进程级全局监听（agent/request + llm/stream），必须挂在 HOST 平面（profile bundle 的
+# cordis.patch.yml），按 agent 隔离的 preset 装不下。preset 会话的子任务会继承父代理的
+# preset 组合，因此仍被 profile 层的路由引擎覆盖。安装与配置见
+# packages/dsh-model-tier/README.zh.md（dsh-science 安装时自动携带）。
 
 # Research loop state machine: research-manifest.json + research_* tools.
 - id: science-research-loop
@@ -83,6 +114,18 @@
 # Versioned artifacts with provenance: artifacts/<name>/v<N>/ + provenance.md.
 - id: science-artifact-registry
   name: ./engines/artifact-registry.mjs
+
+# Remote compute: SSH 连接目标服务器、远程跑分析、监控长时任务（对应 Claude Science
+# 的 Remote compute clusters）。主机注册表在 $DSH_HOME/remotes/hosts.json，作业注册表在
+# <项目根>/.dsh/remotes/jobs.json，项目级访问白名单在 <项目根>/.dsh/remotes/allowlist.json。
+# requireApproval: 每次 remote_run 提交作业默认审批；requireHostAccess: 首次使用某主机
+# 默认审批并写入本项目白名单（等价于 Claude Science 审批卡的 "This project" 作用域）。
+# 无人值守场景两者都改为 false。
+- id: science-remote-compute
+  name: ./engines/remote-compute.mjs
+  config:
+    requireApproval: true
+    requireHostAccess: true
 
 # ── shell ───────────────────────────────────────────────────────────────────
 

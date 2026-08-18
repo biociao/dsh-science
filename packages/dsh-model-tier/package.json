@@ -1,0 +1,63 @@
+{
+  "name": "dsh-model-tier",
+  "version": "0.1.0",
+  "description": "Tiered model router for DeepSeek Harness: routes auxiliary calls (session title, compaction) and subtasks to light models, escalates hard tasks to strong ones — automatically, per request, across providers.",
+  "type": "module",
+  "license": "MIT",
+  "author": "fangchao <fangchao@genomics.cn>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/biociao/dsh-science.git",
+    "directory": "packages/dsh-model-tier"
+  },
+  "homepage": "https://github.com/biociao/dsh-science/tree/main/packages/dsh-model-tier",
+  "bugs": {
+    "url": "https://github.com/biociao/dsh-science/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "model-router",
+    "tiered-routing",
+    "llm",
+    "routing",
+    "cost-optimization"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "./engines/model-tier.mjs",
+  "exports": {
+    ".": "./engines/model-tier.mjs",
+    "./engines/*": "./engines/*",
+    "./client": "./client/model-tier-ui/lib/client.js",
+    "./client/*": "./client/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "engines",
+    "client",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": ["@deepseek-ai/dsh-client-runtime", "@deepseek-ai/dsh-client-ui-settings"]
+    }
+  },
+  "scripts": {
+    "test": "node test/model-tier.test.mjs",
+    "test:e2e": "bash scripts/test-model-tier.sh",
+    "build:client": "node scripts/build-client-bundle.mjs",
+    "check:client": "node scripts/build-client-bundle.mjs --check"
+  }
+}
