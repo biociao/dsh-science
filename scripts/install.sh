@@ -19,7 +19,7 @@ MODE="${1:-copy}"
 mkdir -p "$DST_DIR"
 
 if [ -e "$DST" ] || [ -L "$DST" ]; then
-  echo "警告：已存在 $DST，正在移除（重装前如需保留自定义，请先备份）"
+  echo "警告：已存在 ${DST}（重装前如需保留自定义，请先备份），正在移除"
   rm -rf "$DST"
 fi
 
