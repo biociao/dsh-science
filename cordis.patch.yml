@@ -1,4 +1,4 @@
-# dsh-science bundle patch — inserts the two zero-dependency research engines
+# dsh-science bundle patch — inserts the zero-dependency science engines
 # into a profile's layer stack (installable via `dsh plugin add <pkg>`).
 #
 # IMPORTANT: engine rows are referenced by PACKAGE SUBPATH EXPORT
@@ -11,6 +11,74 @@
       name: dsh-science/engines/research-loop.mjs
     - id: science-artifact-registry
       name: dsh-science/engines/artifact-registry.mjs
+    - id: science-remote-compute
+      name: dsh-science/engines/remote-compute.mjs
+      config:
+        # 远程作业每次提交默认要求审批（等价于 Claude Science 的 "Run this job on <host>?" 卡）。
+        # requireHostAccess：首次使用某主机默认审批并写入本项目白名单（allowlist.json）。
+        # 无人值守/CI 场景请将两者改为 false。
+        requireApproval: true
+        requireHostAccess: true
+    # 远程主机配置 UI 的宿主侧：为浏览器设置页提供 REST API（webServer 前缀路由
+    # /dsh-science/remote-hosts/*），读写与 remote-compute 引擎同一套 hosts/白名单/作业
+    # 文件，并支持真实 ssh 只读探测。客户端 bundle 由 package.json 的 dsh.client 声明
+    # （client/remote-hosts-ui/lib/client.js，scripts/build-client-bundle.mjs 生成）。
+    # 注意：本行 name 必须是包根名 `dsh-science`（经 exports["."] 指向
+    # engines/remote-hosts-ui.mjs）——client-modules 按 loader 条目名
+    # require.resolve("<name>/package.json") 定位 dsh.client 声明，子路径条目名
+    # 解析不到 package.json，客户端 bundle 会被静默跳过（设置页不出现）。
+    - id: science-remote-hosts-ui
+      name: dsh-science
+    # 模型分档路由（HOST 平面）：来自配套依赖包 dsh-model-tier（package.json
+    # dependencies；profile 安装为 hoisted nodeLinker，包根名可解析）。
+    # dsh-model-tier 也可脱离 dsh-science 单独安装到任意 profile
+    # （dsh plugin add dsh-model-tier），两处条目 id 一致（model-tier），
+    # 语义：注册虚拟 provider「智能分档」，会话在模型选择器选中方案后才路由
+    # （按会话 opt-in，无全局路由）；未配置档位时选择器不出现方案，示例配置
+    # 可安全随包发布。
+    # 注意：config 与 packages/dsh-model-tier/cordis.patch.yml 保持一致。
+    - id: model-tier
+      name: dsh-model-tier
+      config:
+        tiers:
+          strong:
+            provider: zai-coding-cn
+            model: glm-5.3
+          default:
+            provider: deepseek-official
+            model: deepseek-v4-flash
+          light:
+            provider: opencode-go
+            model: minimax-m2.7
+        routing:
+          auxiliary: [session-title, compaction]
+          subagents: light
+          # 深链子任务（delegationDepth >= 3）升级到强档（可选）
+          subagentDepthStrong: 3
+          # 单步用户输入超长时升级到强档（可选启发式，按需开启）
+          # escalateOnChars: 40000
+          # classify: true              # 可选：LLM 前置分类器（每次提问/子任务派发前
+          #                             # 分类 light/default/strong，缺省用轻档模型）
+    # 「智能分档」设置页（宿主侧 REST API /dsh-model-tier/* + 客户端 bundle）。
+    # config 与上面 model-tier 行保持一致（界面展示基线）；详见
+    # packages/dsh-model-tier/README.zh.md。
+    - id: model-tier-ui
+      name: dsh-model-tier/engines/model-tier-ui.mjs
+      config:
+        tiers:
+          strong:
+            provider: zai-coding-cn
+            model: glm-5.3
+          default:
+            provider: deepseek-official
+            model: deepseek-v4-flash
+          light:
+            provider: opencode-go
+            model: minimax-m2.7
+        routing:
+          auxiliary: [session-title, compaction]
+          subagents: light
+          subagentDepthStrong: 3
 
 # Optional: the research persona. It applies to ALL agents on the profile that
 # picks up this bundle. For per-agent scoping (the full 科学模式 experience),
