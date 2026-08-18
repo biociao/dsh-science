@@ -9,3 +9,4 @@ node_modules/
 # smoke-test / verification workspaces
 .test-workspace/
 test/.tmp/
+test/.e2e-home/

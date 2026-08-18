@@ -37,4 +37,4 @@ done
 echo "✔ 已安装 $count 个技能到 $DST"
 echo "  技能列表：research-loop / science-project-setup / artifact-provenance / scientific-reviewer /"
 echo "  literature-connector / parallel-delegation / manuscript-writing / bioinformatics-toolkit /"
-echo "  conda-environments / data-inventory"
+echo "  conda-environments / data-inventory / remote-compute"
