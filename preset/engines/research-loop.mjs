@@ -17,6 +17,11 @@
 //   D 架构：错误码化（ERR_*，不再吞成无类型字符串）；research_state 支持 historyLimit 裁剪；
 //     审计日志 <root>/.science.log；新增 research_report（结构化 JSON 输出）；
 //     research_experiment 返回下一步建议。
+// v0.3.0 评审机制升级（对齐 Claude Science 的 reviewer agent）：
+//   verdict 增加 unverifiable；评审落盘提取为导出函数 recordReview（供 HOST 平面
+//   scientific-reviewer 引擎复用）；新增评审门禁（<root>/.reviewer/gate 标记存在时，
+//   最新评审为 needs-work/refuted 的假设禁止经 research_findings 下结论，抛 ERR_REVIEW_GATE）；
+//   dashboard 与所有 research_* 工具返回尾部附「待处理评审」提醒（评审意见回传主 agent）。
 
 import { promises as fsp, existsSync } from "node:fs";
 import path from "node:path";
@@ -35,7 +40,11 @@ const PHASES = ["literature", "hypothesis", "experiment", "analysis", "manuscrip
 const PHASE_INDEX = Object.fromEntries(PHASES.map((p, i) => [p, i]));
 const HYP_STATUSES = ["proposed", "testing", "supported", "refuted", "inconclusive"];
 const INITIAL_HYP_STATUSES = ["proposed", "testing"]; // 结论必须经 research_findings/review 产生
-const REVIEW_VERDICTS = ["supported", "refuted", "inconclusive", "needs-work"];
+const REVIEW_VERDICTS = ["supported", "refuted", "inconclusive", "needs-work", "unverifiable"];
+// 评审可直接终结 testing 假设的 verdict（needs-work/unverifiable/pending 不终结）
+const REVIEW_CONCLUDING = ["supported", "refuted", "inconclusive"];
+// 需要主 agent 处置的 verdict（dashboard 与工具结果的「待处理评审」提醒）
+const REVIEW_PENDING = ["needs-work", "refuted"];
 const PHASE_LABEL = {
   literature: "文献调研",
   hypothesis: "假设提出",
@@ -143,7 +152,8 @@ function renderDashboard(m, artifactIndex) {
   }
   lines.push("");
   const arts = artifactIndex?.artifacts ?? [];
-  lines.push(`## 工件（${arts.length}）｜ 评审（${m.reviews.length}）`);
+  const pend = pendingReviews(m).length;
+  lines.push(`## 工件（${arts.length}）｜ 评审（${m.reviews.length}${pend ? `，待处理 ${pend}` : ""}）`);
   if (arts.length > 0) {
     for (const a of arts.slice(-8)) {
       lines.push(`- ${a.name} v${a.latestVersion}${a.deprecated ? "（已废弃）" : ""}`);
@@ -162,7 +172,52 @@ function renderDashboard(m, artifactIndex) {
 // 仪表盘统一入口：读取工件索引后渲染
 async function dashboard(root, m) {
   const idx = await loadArtifactIndex(root);
-  return renderDashboard(m, idx);
+  return renderDashboard(m, idx) + pendingReviewNotice(m);
+}
+
+// 假设的「最新一条评审」（按 h.reviews 登记顺序）
+function latestHypReview(m, h) {
+  const ids = h.reviews ?? [];
+  for (let i = ids.length - 1; i >= 0; i--) {
+    const r = m.reviews.find((x) => x.id === ids[i]);
+    if (r) return r;
+  }
+  return null;
+}
+
+// 待处理评审：假设/实验的最新评审 verdict ∈ REVIEW_PENDING，或未关联评审按 target 取最新后仍待处理
+function pendingReviews(m) {
+  const pend = [];
+  const linked = new Set();
+  for (const h of m.hypotheses) {
+    for (const id of h.reviews ?? []) linked.add(id);
+    const r = latestHypReview(m, h);
+    if (r && REVIEW_PENDING.includes(r.verdict)) pend.push({ id: r.id, target: r.target, verdict: r.verdict, scope: `假设 ${h.id}` });
+  }
+  for (const e of m.experiments) {
+    const ids = e.reviews ?? [];
+    for (const id of ids) linked.add(id);
+    const last = ids.length ? m.reviews.find((x) => x.id === ids[ids.length - 1]) : null;
+    if (last && REVIEW_PENDING.includes(last.verdict)) pend.push({ id: last.id, target: last.target, verdict: last.verdict, scope: `实验 ${e.id}` });
+  }
+  const byTarget = new Map();
+  for (const r of m.reviews) if (!linked.has(r.id)) byTarget.set(r.target, r);
+  for (const r of byTarget.values()) {
+    if (REVIEW_PENDING.includes(r.verdict)) pend.push({ id: r.id, target: r.target, verdict: r.verdict, scope: null });
+  }
+  return pend;
+}
+
+// 附在所有 research_* 工具返回尾部的「待处理评审」提醒（评审意见回传主 agent 的通道之一）
+function pendingReviewNotice(m) {
+  const pend = pendingReviews(m);
+  if (pend.length === 0) return "";
+  const lines = ["", `⚠ 待处理评审（${pend.length}）：`];
+  for (const p of pend.slice(-8)) {
+    lines.push(`- ${p.id} [${p.verdict}] ${p.target}${p.scope ? `（${p.scope}）` : ""} → reviews/${p.id}/report.md`);
+  }
+  lines.push("请阅读评审报告并处置（补分析/改措辞/降级为推测）；修复后新的 findings/工件会触发自动复审。");
+  return "\n" + lines.join("\n");
 }
 
 function appendHistory(m, action, detail, phase) {
@@ -263,6 +318,85 @@ function emptyManifest(title, domain, question) {
   };
 }
 
+// ── 评审落盘（research_review 工具与 scientific-reviewer 引擎共用）────────────
+
+const DEFAULT_LOCK_OPTS = { timeoutMs: 10000, staleMs: 30000 };
+
+// 模块级 manifest 变更入口（apply 内的 withManifestCfg 委托给它）
+async function withManifest(root, fn, lockOpts) {
+  return core.withFileLock(
+    await manifestPath(root),
+    async () => {
+      const m = await loadManifest(root);
+      if (!m) throw core.sciErr("ERR_NOT_INIT", "项目未初始化，请先调用 research_init");
+      const out = await fn(m);
+      await saveManifest(root, m);
+      return out;
+    },
+    lockOpts ?? DEFAULT_LOCK_OPTS
+  );
+}
+
+// 在已加载的 manifest 上登记评审：写 reviews/Rnn/report.md、关联假设/实验、
+// 按 verdict 终结 testing 假设。返回 {id, notes, reportPath}。
+async function writeReviewRecord(root, m, { target, verdict, issues, summary, hypothesis, experiment }) {
+  const id = core.nextSeqId(m.reviews, "R", 2);
+  const dir = path.join(root, "reviews", id);
+  await fsp.mkdir(dir, { recursive: true });
+  const report = [
+    `# 评审 ${id}`,
+    "",
+    `- 对象：${target}`,
+    `- 结论：${verdict}`,
+    `- 时间：${core.nowISO()}`,
+    "",
+    "## 摘要",
+    summary ?? "",
+    "",
+    "## 问题清单",
+    ...(core.asList(issues).length ? core.asList(issues).map((x, i) => `${i + 1}. ${x}`) : ["（无）"]),
+    "",
+  ].join("\n");
+  const reportPath = path.join(dir, "report.md");
+  await fsp.writeFile(reportPath, report, "utf8");
+  const notes = [];
+  if (hypothesis) {
+    const h = findHypothesis(m, hypothesis);
+    if (!h.reviews.includes(id)) h.reviews.push(id);
+    // 评审可终结"验证中"的假设；终态假设如需重新验证走 research_experiment
+    if (h.status === "testing" && REVIEW_CONCLUDING.includes(verdict)) {
+      setHypothesisStatus(h, verdict);
+      notes.push(`假设 ${h.id} → ${STATUS_LABEL[verdict]}`);
+    } else {
+      notes.push(`假设 ${h.id} 已登记评审 ${id}（当前状态 ${STATUS_LABEL[h.status] ?? h.status}，不改变）`);
+    }
+  }
+  if (experiment) {
+    const e = findExperiment(m, experiment);
+    if (!e.reviews.includes(id)) e.reviews.push(id);
+  }
+  m.reviews.push({ id, target, verdict, created: core.nowISO() });
+  appendHistory(m, "review", `${id} 评审 ${target}：${verdict}`, "analysis");
+  return { id, notes, reportPath };
+}
+
+// scientific-reviewer 引擎的落盘入口（HOST 平面调用，与工具共用同一把文件锁）
+export async function recordReview(root, input, lockOpts) {
+  return withManifest(root, (m) => writeReviewRecord(root, m, input), lockOpts);
+}
+
+// gate 门禁：.reviewer/gate 标记存在时，禁止终结「最新评审仍待处理」的假设
+function assertReviewGate(root, m, h) {
+  if (!existsSync(path.join(root, ".reviewer", "gate"))) return;
+  const lr = latestHypReview(m, h);
+  if (lr && REVIEW_PENDING.includes(lr.verdict)) {
+    throw core.sciErr(
+      "ERR_REVIEW_GATE",
+      `评审门禁：假设 ${h.id} 的最新评审 ${lr.id} 为 ${lr.verdict}，须先处置评审意见（reviews/${lr.id}/report.md）并由复审覆盖后才能下结论`
+    );
+  }
+}
+
 // ── 插件入口 ────────────────────────────────────────────────────────────────
 
 function apply(ctx, config = {}) {
@@ -282,18 +416,7 @@ function apply(ctx, config = {}) {
     }
   };
 
-  const withManifestCfg = async (root, fn) =>
-    core.withFileLock(
-      await manifestPath(root),
-      async () => {
-        const m = await loadManifest(root);
-        if (!m) throw core.sciErr("ERR_NOT_INIT", "项目未初始化，请先调用 research_init");
-        const out = await fn(m);
-        await saveManifest(root, m);
-        return out;
-      },
-      lockOpts
-    );
+  const withManifestCfg = async (root, fn) => withManifest(root, fn, lockOpts);
 
   // ── research_init：初始化/加载研究项目（等价于 Claude Science 的 Project）──
   ctx.tools.register(core.makeTool({
@@ -532,6 +655,7 @@ function apply(ctx, config = {}) {
               `假设 ${h0.id} 不允许状态转移 ${h0.status} → ${args.conclusion}（允许：${allowed.join(", ") || "无"}；结论须先经 testing）`
             );
           }
+          assertReviewGate(root, m, h0); // 评审门禁：最新评审待处理时禁止下结论
         }
         const logPath = path.join(root, "experiments", expId, "log.md");
         const stamp = core.nowISO();
@@ -593,14 +717,14 @@ function apply(ctx, config = {}) {
   ctx.tools.register(core.makeTool({
     name: "research_review",
     description:
-      "登记一次评审（等价于 Claude Science 的 Reviewer）：把评审结论写入 reviews/R01/…/report.md 并记入研究清单。verdict 枚举：supported / refuted / inconclusive / needs-work。可关联 hypothesis 与 experiment：对 testing 状态的假设，评审结论会更新其状态并记录评审 id。实际评审由科学评审技能（scientific-reviewer）发起子代理执行，本工具负责归档。",
+      "登记一次评审（等价于 Claude Science 的 Reviewer）：把评审结论写入 reviews/R01/…/report.md 并记入研究清单。verdict 枚举：supported / refuted / inconclusive / needs-work / unverifiable。可关联 hypothesis 与 experiment：对 testing 状态的假设，评审结论会更新其状态并记录评审 id。通常由 scientific-reviewer 引擎用独立评审模型自动评审后归档；手动评审（技能兜底流程）也走本工具。",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
         root: { type: "string", description: "项目根目录（默认自动探测）" },
         target: { type: "string", description: "评审对象：claim/论断、实验 id、或工件名" },
-        verdict: { type: "string", enum: [...REVIEW_VERDICTS, "pending"], description: "结论：supported / refuted / inconclusive / needs-work（缺省 pending）" },
+        verdict: { type: "string", enum: [...REVIEW_VERDICTS, "pending"], description: "结论：supported / refuted / inconclusive / needs-work / unverifiable（缺省 pending）" },
         issues: { type: "array", items: { type: "string" }, description: "发现的问题列表" },
         summary: { type: "string", description: "评审摘要" },
         hypothesis: { type: "string", description: "（可选）关联假设 id，如 H1；testing 状态下会随 verdict 更新状态" },
@@ -617,44 +741,16 @@ function apply(ctx, config = {}) {
         throw core.sciErr("ERR_VALIDATION", `verdict 只能是 ${REVIEW_VERDICTS.join(" / ")}`);
       }
       return withManifestCfg(root, async (m) => {
-        const id = core.nextSeqId(m.reviews, "R", 2);
-        const dir = path.join(root, "reviews", id);
-        await fsp.mkdir(dir, { recursive: true });
-        const report = [
-          `# 评审 ${id}`,
-          "",
-          `- 对象：${target}`,
-          `- 结论：${verdict}`,
-          `- 时间：${core.nowISO()}`,
-          "",
-          "## 摘要",
-          core.optStr(args, "summary", ""),
-          "",
-          "## 问题清单",
-          ...(core.asList(args.issues).length ? core.asList(args.issues).map((x, i) => `${i + 1}. ${x}`) : ["（无）"]),
-          "",
-        ].join("\n");
-        await fsp.writeFile(path.join(dir, "report.md"), report, "utf8");
-        const notes = [];
-        if (args.hypothesis) {
-          const h = findHypothesis(m, args.hypothesis);
-          if (!h.reviews.includes(id)) h.reviews.push(id);
-          // 评审可终结"验证中"的假设；终态假设如需重新验证走 research_experiment
-          if (h.status === "testing" && ["supported", "refuted", "inconclusive"].includes(verdict)) {
-            setHypothesisStatus(h, verdict);
-            notes.push(`假设 ${h.id} → ${STATUS_LABEL[verdict]}`);
-          } else {
-            notes.push(`假设 ${h.id} 已登记评审 ${id}（当前状态 ${STATUS_LABEL[h.status] ?? h.status}，不改变）`);
-          }
-        }
-        if (args.experiment) {
-          const e = findExperiment(m, args.experiment);
-          if (!e.reviews.includes(id)) e.reviews.push(id);
-        }
-        m.reviews.push({ id, target, verdict, created: core.nowISO() });
-        appendHistory(m, "review", `${id} 评审 ${target}：${verdict}`, "analysis");
+        const { id, notes, reportPath } = await writeReviewRecord(root, m, {
+          target,
+          verdict,
+          issues: args.issues,
+          summary: core.optStr(args, "summary", ""),
+          hypothesis: args.hypothesis,
+          experiment: args.experiment,
+        });
         const extra = notes.length ? "\n" + notes.join("\n") : "";
-        return `已登记评审 ${id} → ${path.join(dir, "report.md")}${extra}\n\n` + (await dashboard(root, m));
+        return `已登记评审 ${id} → ${reportPath}${extra}\n\n` + (await dashboard(root, m));
       });
     },
   }));

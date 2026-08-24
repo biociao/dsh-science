@@ -21,7 +21,7 @@ export DSH_HOME="$HOME_HOME"
 
 echo "== 1/6 包结构检查 =="
 [ -f "$ROOT/package.json" ] && [ -f "$ROOT/cordis.patch.yml" ] || { echo "缺少 package.json / cordis.patch.yml" >&2; exit 1; }
-[ -f "$ROOT/engines/research-loop.mjs" ] && [ -f "$ROOT/engines/artifact-registry.mjs" ] && [ -f "$ROOT/engines/remote-compute.mjs" ] && [ -f "$ROOT/engines/remote-hosts-ui.mjs" ] || { echo "缺少引擎" >&2; exit 1; }
+[ -f "$ROOT/engines/research-loop.mjs" ] && [ -f "$ROOT/engines/artifact-registry.mjs" ] && [ -f "$ROOT/engines/remote-compute.mjs" ] && [ -f "$ROOT/engines/remote-hosts-ui.mjs" ] && [ -f "$ROOT/engines/workbench.mjs" ] && [ -f "$ROOT/engines/workbench-ui.mjs" ] || { echo "缺少引擎" >&2; exit 1; }
 [ -f "$ROOT/client/remote-hosts-ui/lib/client.js" ] || { echo "缺少 client bundle（先运行 node scripts/build-client-bundle.mjs）" >&2; exit 1; }
 [ -f "$ROOT/packages/dsh-model-tier/engines/model-tier.mjs" ] && [ -f "$ROOT/packages/dsh-model-tier/cordis.patch.yml" ] || { echo "缺少配套包 packages/dsh-model-tier" >&2; exit 1; }
 
@@ -104,16 +104,16 @@ node -e "const {createRequire}=require('module');const r=createRequire('$HOME_HO
 
 echo "== 5/6 组合检查（--dump-config）=="
 OUT="$(dsh --profile web --dump-config 2>&1 || true)"
-for row in science-research-loop science-artifact-registry science-remote-compute science-remote-hosts-ui model-tier model-tier-ui; do
+for row in science-research-loop science-artifact-registry science-remote-compute science-remote-hosts-ui science-scientific-reviewer model-tier model-tier-ui; do
   echo "$OUT" | grep -q "$row" && echo "   行 $row 已合入组合 ✓" || { echo "   行 $row 缺失 ✗"; exit 1; }
 done
 
 echo "== 6/6 引导启动（加载器解析 + apply + client bundle 扫描）=="
 BOOT_LOG="$TMP/boot.log"
 timeout 40 dsh --profile web >"$BOOT_LOG" 2>&1 || true
-if grep -qE "dsh-science/engines|science-research-loop|science-artifact-registry|science-remote-compute|science-remote-hosts-ui" "$BOOT_LOG"; then
+if grep -qE "dsh-science/engines|science-research-loop|science-artifact-registry|science-remote-compute|science-remote-hosts-ui|science-research-workbench|science-workbench-ui|science-scientific-reviewer" "$BOOT_LOG"; then
   echo "--- 引导日志中的引擎相关错误 ---"
-  grep -E "dsh-science/engines|science-research-loop|science-artifact-registry|science-remote-compute|science-remote-hosts-ui" "$BOOT_LOG" | head -5
+  grep -E "dsh-science/engines|science-research-loop|science-artifact-registry|science-remote-compute|science-remote-hosts-ui|science-research-workbench|science-workbench-ui|science-scientific-reviewer" "$BOOT_LOG" | head -5
   echo "✗ 引擎加载/apply 出错"; exit 1
 fi
 if grep -qE "client-modules:.*dsh-science|MissingClientBundle|declares dsh.client but exports no" "$BOOT_LOG"; then

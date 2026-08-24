@@ -1,13 +1,15 @@
-// dsh-science smoke test —— 在临时工作区上验证两个引擎插件的工具逻辑、
-// 错误码体系、状态机约束、并发基础（锁/原子写）、schema 迁移与新工具
-// （artifact_diff / artifact_verify / artifact_deprecate / research_report），
-// 并对发布包做静态校验（dsh.bundle manifest、cordis.patch.yml 子路径、引擎镜像一致性）。
+// dsh-science smoke test —— 在临时工作区上验证多个引擎插件（研究循环/工件/远程计算/
+// 科研工作台）的工具逻辑、错误码体系、状态机约束、并发基础（锁/原子写）、schema 迁移
+// 与新工具（artifact_diff / artifact_verify / artifact_deprecate / research_report /
+// research_workbench / research_project_*），并对发布包做静态校验（dsh.bundle manifest、
+// cordis.patch.yml 子路径、引擎镜像一致性、client bundle 一致）。
 // 用法：node scripts/smoke-test.mjs [工作目录]
 // 默认工作目录 = os.tmpdir() 下的临时目录（发布包本身保持只读，适合 CI）。
 
 import { promises as fsp, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import os from "node:os";
+import { EventEmitter } from "node:events";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -144,25 +146,46 @@ let patchOk =
   patchText.includes("dsh-science/engines/research-loop.mjs") &&
   patchText.includes("dsh-science/engines/artifact-registry.mjs") &&
   patchText.includes("dsh-science/engines/remote-compute.mjs") &&
+  patchText.includes("dsh-science/engines/scientific-reviewer.mjs") &&
+  patchText.includes("dsh-science/engines/workbench.mjs") &&
+  patchText.includes("dsh-science/engines/workbench-ui.mjs") &&
   patchText.includes("- id: model-tier") &&
   patchText.includes("name: dsh-model-tier");
-ok("cordis.patch.yml: 子路径导出引用三个引擎 + dsh-model-tier 挂载行", patchOk);
+ok("cordis.patch.yml: 子路径导出引用六个引擎 + dsh-model-tier 挂载行", patchOk);
 ok("package.json 依赖 dsh-model-tier（配套路由 bundle）", typeof pkgJson.dependencies?.["dsh-model-tier"] === "string");
 ok("package.json exports ./engines/*（含 core.mjs 子路径）", Boolean(pkgJson.exports?.["./engines/*"]));
 
 let mirrorOk = true;
-for (const e of ["core.mjs", "research-loop.mjs", "artifact-registry.mjs", "remote-compute.mjs"]) {
+for (const e of ["core.mjs", "research-loop.mjs", "artifact-registry.mjs", "remote-compute.mjs", "workbench.mjs"]) {
   const a = await sha256(path.join(pkg, "engines", e));
   const b = await sha256(path.join(pkg, "preset", "engines", e));
   if (a !== b) mirrorOk = false;
 }
 ok("engines/ ↔ preset/engines/ 镜像一致（含 core.mjs）", mirrorOk);
+// scientific-reviewer / workbench-ui 是 HOST-only 引擎（agent/request 监听、webServer 路由
+// 装不进按 agent 隔离的 preset），不进入 preset 镜像清单
+ok(
+  "scientific-reviewer 不进 preset/engines 镜像（HOST-only）",
+  !(await fsp.stat(path.join(pkg, "preset", "engines", "scientific-reviewer.mjs")).then(() => true, () => false)),
+);
+ok(
+  "workbench-ui 不进 preset/engines 镜像（webServer HOST-only）",
+  !(await fsp.stat(path.join(pkg, "preset", "engines", "workbench-ui.mjs")).then(() => true, () => false)),
+);
 
 // ── 2. 插件契约与工具注册 ───────────────────────────────────────────
 console.log("\n== 2. 插件契约与工具注册 ==");
 const { loopTools, artTools, loopMod, artMod } = await registerEngines();
 ok("research-loop: name/inject/apply", loopMod.name === "science-research-loop" && loopMod.inject?.includes("tools") && typeof loopMod.apply === "function");
+ok("research-loop: 导出 recordReview（scientific-reviewer 引擎的落盘入口）", typeof loopMod.recordReview === "function");
 ok("artifact-registry: name/inject/apply", artMod.name === "science-artifact-registry" && artMod.inject?.includes("tools") && typeof artMod.apply === "function");
+
+// scientific-reviewer（HOST 平面自动评审引擎）：契约断言；行为级测试见 test/scientific-reviewer.test.mjs
+const revMod = await import(path.join(pkg, "engines", "scientific-reviewer.mjs"));
+ok(
+  "scientific-reviewer: name/inject/apply",
+  revMod.name === "science-scientific-reviewer" && revMod.inject?.includes("llm") && typeof revMod.apply === "function",
+);
 
 // dsh-model-tier（配套依赖包）：契约 + 虚拟 provider 注册 + 默认模型守卫
 const routerMod = await import(path.join(pkg, "packages", "dsh-model-tier", "engines", "model-tier.mjs"));
@@ -201,6 +224,18 @@ ok("结构化输出：research_report / artifact_diff / artifact_verify 有 JSON
   loopTools.research_report.output?.schema?.type === "object" &&
   artTools.artifact_diff.output?.schema?.type === "object" &&
   artTools.artifact_verify.output?.schema?.type === "object");
+
+// 科研工作台引擎（多项目分类管理）：契约 + 工具清单 + 结构化输出
+const wbkMod = await import(path.join(pkg, "engines", "workbench.mjs"));
+const wbkTools = {};
+await wbkMod.apply({ tools: { register: (d) => (wbkTools[d.name] = d) } }, {});
+ok("research-workbench: name/inject/apply", wbkMod.name === "science-research-workbench" && wbkMod.inject?.includes("tools") && typeof wbkMod.apply === "function");
+const EXPECT_WB = ["research_workbench", "research_project_list", "research_project_show", "research_project_register", "research_project_classify"];
+const wbkMissing = EXPECT_WB.filter((n) => !wbkTools[n]);
+ok("research-workbench 注册 5 工具", wbkMissing.length === 0, wbkMissing.length ? `缺：${wbkMissing}` : "");
+ok("research-workbench 工具全部结构化 JSON 输出", EXPECT_WB.every((n) => wbkTools[n]?.output?.schema?.type === "object"));
+const wbUiMod = await import(path.join(pkg, "engines", "workbench-ui.mjs"));
+ok("workbench-ui: name/inject/apply", wbUiMod.name === "science-workbench-ui" && wbUiMod.inject?.includes("webServer") && typeof wbUiMod.apply === "function");
 
 // ── 3. 错误码 / 校验（隔离根目录，互不干扰）──────────────────────────
 console.log("\n== 3. 错误码与校验约束 ==");
@@ -775,6 +810,92 @@ ok("route-status 未路由会话 → tiered=false", mtRs0.ok === true && mtRs0.t
 const mtRsBad = await mtReqRes({ method: "POST", url: "/dsh-model-tier/route-status", headers: hdr, body: {} });
 ok("route-status 缺 sessionId → 400", mtRsBad._status === 400);
 routerMod.routeStatus.delete("S-mt");
+
+// ── 11. 科研工作台：多项目分类与状态追踪（research_workbench + project_* 工具 + webServer 路由）──
+console.log("\n== 11. 科研工作台（research_workbench + research_project_* + workbench-ui 路由）==");
+const wbRoot = sub("t-workbench");
+await fsp.mkdir(wbRoot, { recursive: true });
+const wbExec = { agent: { session: { id: "wb-session", header: { cwd: wbRoot } } } };
+const mkProj = async (dir, manifest) => {
+  const p = path.join(wbRoot, dir);
+  await fsp.mkdir(p, { recursive: true });
+  await fsp.writeFile(path.join(p, "research-manifest.json"), JSON.stringify(manifest, null, 2));
+};
+await mkProj("projA", {
+  schema: 2,
+  project: { id: "a", title: "AMR 质粒", domain: "pathogen", created: "", status: "active" },
+  question: { text: "?", updatedAt: "" },
+  hypotheses: [
+    { id: "H1", text: "h", status: "testing", experiments: [], reviews: [], updatedAt: "" },
+    { id: "H2", text: "h2", status: "supported", experiments: [], reviews: [], updatedAt: "" },
+  ],
+  loop: { phase: "analysis", iteration: 2, history: [] },
+  experiments: [{ id: "E01", title: "e", hypothesis: "H1", status: "running", created: "", updatedAt: "", reviews: [] }],
+  artifacts: [],
+  reviews: [{ id: "R01", target: "claim", verdict: "needs-work", created: "" }],
+  updatedAt: "2026-02-01T00:00:00Z",
+});
+await mkProj("projB", {
+  schema: 2,
+  project: { id: "b", title: "基因组组装", domain: "genomics", created: "", status: "active" },
+  question: { text: "?", updatedAt: "" }, hypotheses: [],
+  loop: { phase: "experiment", iteration: 0, history: [] },
+  experiments: [], artifacts: [], reviews: [], updatedAt: "2026-01-01T00:00:00Z",
+});
+await fsp.mkdir(path.join(wbRoot, "nonproject"), { recursive: true }); // 无 manifest，不应被扫描
+
+const wbOverview = await wbkTools.research_workbench.execute({ root: wbRoot }, wbExec);
+ok("workbench: 扫描发现 2 个项目（忽略无 manifest 目录）", wbOverview.summary?.projects === 2 && wbOverview.projects.length === 2 && !wbOverview.projects.some((p) => p.path === "nonproject"));
+ok("workbench: 状态汇总计数（假设/实验/待评审）", wbOverview.summary.total.hypotheses === 2 && wbOverview.summary.total.experiments === 1 && wbOverview.summary.total.pendingReviews === 1);
+ok("workbench: 项目状态派生（phase/假设分布/待评审）", (() => {
+  const a = wbOverview.projects.find((p) => p.path === "projA");
+  return a && a.manifest?.phase === "analysis" && a.counts.hypotheses.testing === 1 && a.counts.pendingReviews === 1;
+})());
+
+const wbCls = await wbkTools.research_project_classify.execute({ root: wbRoot, path: "projA", category: "pathogen", tags: ["amr"], priority: "high", status: "active", notes: "重点" }, wbExec);
+ok("workbench: 分类元数据写入并回读", wbCls.project.category === "pathogen" && wbCls.project.tags.includes("amr") && wbCls.project.priority === "high" && wbCls.project.notes === "重点");
+ok("workbench: 注册表落盘 .dsh/workbench.json", await fsp.stat(path.join(wbRoot, ".dsh", "workbench.json")).then(() => true, () => false));
+
+const wbReg = await wbkTools.research_project_register.execute({ root: wbRoot, path: "projB", category: "genomics", status: "paused" }, wbExec);
+ok("workbench: 登记 projB（分类/状态落库）", wbReg.project.category === "genomics" && wbReg.project.status === "paused");
+
+const wbList = await wbkTools.research_project_list.execute({ root: wbRoot, which: "classified" }, wbExec);
+ok("workbench: 列表（已登记 2）", wbList.count === 2);
+const wbListCat = await wbkTools.research_project_list.execute({ root: wbRoot, category: "pathogen", which: "all" }, wbExec);
+ok("workbench: 按分类筛选", wbListCat.count === 1 && wbListCat.projects[0].path === "projA");
+const wbShow = await wbkTools.research_project_show.execute({ root: wbRoot, path: "projA" }, wbExec);
+ok("workbench: 单项目详情", wbShow.project.title === "AMR 质粒" && wbShow.project.counts.hypotheses.total === 2);
+await expectThrow(() => wbkTools.research_project_show.execute({ root: wbRoot, path: "../escape" }, wbExec), "ERR_PATH", "workbench: 路径越界被拒");
+await expectThrow(() => wbkTools.research_project_classify.execute({ root: wbRoot, path: "projA", status: "bogus" }, wbExec), "ERR_VALIDATION", "workbench: 非法状态被拒");
+await expectThrow(() => wbkTools.research_project_classify.execute({ root: wbRoot, path: "projA", priority: "urgent" }, wbExec), "ERR_VALIDATION", "workbench: 非法优先级被拒");
+await expectThrow(() => wbkTools.research_project_register.execute({ root: wbRoot, path: "missing-dir" }, wbExec), "ERR_NOT_FOUND", "workbench: 登记不存在目录被拒");
+
+// workbench-ui 宿主侧：注册前缀路由 + overview/classify + 同源防护
+let wbRoute = null;
+const wbWebServer = { register: (row) => { wbRoute = row; return () => {}; } };
+wbUiMod.apply({ get: (k) => (k === "webServer" ? wbWebServer : undefined), on: () => {} }, { workbenchRoot: wbRoot });
+ok("workbench-ui: 注册前缀路由 /dsh-science/workbench", wbRoute?.path === "/dsh-science/workbench");
+const wbHdr = { origin: "http://localhost:3080", host: "localhost:3080" };
+function wbReqRes({ method, url, headers = {}, body }) {
+  const json = body === undefined ? null : JSON.stringify(body);
+  return new Promise((resolve) => {
+    const res = { _status: 0, _body: "", writeHead(s) { this._status = s; }, end(b) { this._body = b; resolve(this); } };
+    const req = new EventEmitter();
+    req.method = method; req.url = url; req.headers = headers; req.destroy = () => {};
+    setImmediate(() => { if (json !== null) req.emit("data", json); req.emit("end"); });
+    return wbRoute.handler(req, res);
+  });
+}
+const wbOverviewHttp = JSON.parse((await wbReqRes({ method: "POST", url: "/dsh-science/workbench/overview", headers: wbHdr, body: { root: wbRoot } }))._body);
+ok("workbench-ui: overview 返回项目", wbOverviewHttp.ok === true && wbOverviewHttp.projects.length === 2);
+const wbClsHttp = JSON.parse((await wbReqRes({ method: "POST", url: "/dsh-science/workbench/classify", headers: wbHdr, body: { root: wbRoot, path: "projA", category: "pathogen", tags: ["amr", "plasmid"] } }))._body);
+ok("workbench-ui: classify 更新标签", wbClsHttp.ok === true && wbClsHttp.project.tags.join(",") === "amr,plasmid");
+const wb403 = await wbReqRes({ method: "POST", url: "/dsh-science/workbench/overview", headers: { host: "127.0.0.1:3080" }, body: { root: wbRoot } });
+ok("workbench-ui: 缺 Origin → 403", wb403._status === 403);
+const wb405 = await wbReqRes({ method: "GET", url: "/dsh-science/workbench/overview", headers: wbHdr });
+ok("workbench-ui: 非 POST → 405", wb405._status === 405);
+const wb404 = await wbReqRes({ method: "POST", url: "/dsh-science/workbench/nope", headers: wbHdr, body: {} });
+ok("workbench-ui: 未知方法 → 404", wb404._status === 404);
 
 console.log(`\n结果: ${passed} 通过, ${failures} 失败`);
 if (!process.argv[2]) await fsp.rm(work, { recursive: true, force: true });

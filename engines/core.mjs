@@ -29,6 +29,7 @@ export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // ERR_QUOTA        超过大小配额
 // ERR_LOCK_TIMEOUT 等待文件锁超时
 // ERR_CONFLICT     并发冲突
+// ERR_REVIEW_GATE  评审门禁拦截（scientific-reviewer gate 模式，research-loop）
 // ERR_HOST         主机未注册/未知（remote-compute）
 // ERR_SSH          ssh/scp 执行失败（remote-compute）
 // ERR_ACCESS       主机未获本项目授权或审批被拒（remote-compute）

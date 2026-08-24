@@ -13,10 +13,12 @@
 - **版本化工件与溯源** —— `artifact_save` / `artifact_list` / `artifact_show` / `artifact_diff` / `artifact_verify` / `artifact_deprecate` / `artifact_reproduce`：结果存为 `artifacts/<name>/v<N>/`，附每文件 SHA-256、`artifact.json` 溯源（命令/输入/环境/envFile）与追加式 `provenance.md`。
 - **远程计算引擎（SSH / 集群）** —— `remote_host_add` / `remote_host_probe` / `remote_host_notes` / `remote_run` / `remote_status` / `remote_logs` / `remote_pull` / `remote_cancel` 等 16 个工具：用 `~/.ssh/config` 别名连接实验室工作站或 HPC 集群（零安装、零第三方依赖），工作站以 detached 进程、SLURM 走 sbatch 运行长时生信任务，断连不杀；提交前默认要求审批，且首次使用某主机需项目级授权（审批后写入本项目白名单）；`remote_status` 批量监控并自动迁移状态（running→succeeded/failed/killed），结束后 `remote_pull` 拉回输出（超过阈值的大文件留在主机并记录路径）。
 - **远程主机配置 UI（bundle/profile 级）** —— 设置面板新增「远程主机」页（对应 Claude Science 的 Settings > Compute > SSH hosts）：主机列表/添加/探测/编辑/移除，以及各项目访问白名单与作业摘要。宿主侧 REST API（`webServer` 路由 `/dsh-science/remote-hosts/*`，`engines/remote-hosts-ui.mjs`）+ 客户端 bundle（`client/remote-hosts-ui/`，由 `scripts/build-client-bundle.mjs` 生成），与远程引擎共用同一套数据文件。需重启 web 进程生效（见 [docs/remote-hosts-ui.md](docs/remote-hosts-ui.md)）。
+- **科研工作台（多项目分类与状态追踪）** —— 设置面板新增「科研工作台」页，配套 `research_workbench` / `research_project_list` / `research_project_show` / `research_project_register` / `research_project_classify` 工具。它自动扫描工作台根下的项目目录（含 `research-manifest.json`），把分类元数据（**分类 / 标签 / 优先级 / 生命周期状态 / 备注**）持久化到 `<工作台根>/.dsh/workbench.json`，并聚合每个项目的**实时**状态（循环阶段、假设/实验状态分布、工件数、待处理评审、远程作业数、最近活跃）；可按分类/状态/优先级/标签分组、筛选、排序并得到全局汇总。单项目的 ReAct 研究循环引擎（见下）保持按项目隔离，本工作台是让"多项目可管可控"的**伞形**管理层。宿主侧 REST API（`webServer` 路由 `/dsh-science/workbench/*`，`engines/workbench-ui.mjs`）+ 同一客户端 bundle（见 [docs/workbench.md](docs/workbench.md)）。
 - **模型分档路由（Model Tier）** —— 由配套 bundle [`dsh-model-tier`](packages/dsh-model-tier/) 提供：同一会话内自动把辅助请求（会话标题、压缩）与子任务分流到**轻量档**，主对话走默认档、复杂任务按规则升级到**强档**，各档位可指向**不同 provider**（如强档 GLM-5.3 / 主档 deepseek-v4-flash / 轻档 minimax-M3），对应 Claude Code 的 Opus/Sonnet/Haiku 分级策略；基于 DSH 原生 `agent/request` + `llm/stream` waterfall 扩展点，provider 未注册时自动 no-op。安装 dsh-science 自动携带，也可单独装到任意 profile（`dsh plugin add dsh-model-tier`）。
+- **独立自动评审引擎（Scientific Reviewer，HOST 平面）** —— 对应 Claude Science 的 reviewer agent（actor-critic）：观察主会话 turn 边界，事件驱动触发（新工件版本 / 假设更新 / manuscript 变更），引擎只读收集论断与执行记录后，用 **bundle config 显式指定的评审模型**发起独立评审调用（与工作流模型解耦，可做到"执行用小模型、评审用强推理模型"）；结论落盘 `reviews/Rnn/` + manifest，supported/refuted/inconclusive 可终结 testing 假设；评审意见经 `research_*` 工具结果尾部的「待处理评审」提醒回传主代理处置，修复后自动复审；可选 `gate: true` 门禁（最新评审 needs-work/refuted 的假设禁止下结论）。
 - **11 个科研技能** —— research-loop、science-project-setup、artifact-provenance、scientific-reviewer、literature-connector、parallel-delegation、manuscript-writing、bioinformatics-toolkit、conda-environments、data-inventory、remote-compute。
 
-四个引擎插件**零第三方依赖**（只用 Node 内置模块 + 系统 OpenSSH，共享 `engines/core.mjs`），注册标准 cordis 工具；配套的 dsh-model-tier 路由同样是零依赖。
+五个引擎插件**零第三方依赖**（只用 Node 内置模块 + 系统 OpenSSH，共享 `engines/core.mjs`），注册标准 cordis 工具；配套的 dsh-model-tier 路由同样是零依赖。
 既可作 profile bundle 安装（`dsh plugin add`），也可作 agent preset（「科学模式」）安装。
 
 ### v0.2.0 新增：模型分档路由（配套 bundle dsh-model-tier）
@@ -81,10 +83,11 @@ dsh plugin --profile web add dsh-science            # npm 发布后
 dsh plugin --profile web add "github:biociao/dsh-science"
 ```
 
-重启 profile（或刷新 Web GUI；新增引擎/改引擎代码需重启 profile）。bundle 会把三个引擎
-（research-loop / artifact-registry / remote-compute）、远程主机配置 UI 与配套路由包
-dsh-model-tier 插入 profile 层栈，
-该 profile 上所有 agent 都能用 `research_*` / `artifact_*` / `remote_*` 工具与模型分档路由。
+重启 profile（或刷新 Web GUI；新增引擎/改引擎代码需重启 profile）。bundle 会把
+research-loop / artifact-registry / remote-compute / scientific-reviewer 等引擎、科研工作台引擎、
+`workbench-ui` + `remote-hosts-ui` 两个宿主 REST 引擎与配套路由包 dsh-model-tier 插入 profile 层栈，
+该 profile 上所有 agent 都能用 `research_*` / `artifact_*` / `remote_*` / `research_project_*`
+工具与模型分档路由。
 
 ### 方式 B —— agent preset（完整「科学模式」，按 agent 隔离）
 
@@ -111,7 +114,7 @@ bash scripts/install-skills.sh          # -> ~/.dsh/skills（遵循 $DSH_HOME）
 2. 每次会话先 `research_state`；循环状态跨会话持续。
 3. 跑循环：`research_hypothesis`（H1/H2/…）→ `research_experiment`（E01/…，创建 `experiments/<id>/{design.md,log.md,code/,results/}`）→ 跑代码 → `research_findings`（追加 log.md、更新假设状态、推进循环）→ 值得引用/复现的结果 `artifact_save`。
 4. 需要 GPU/集群/专门环境时：`remote_host_add` 注册主机 → `remote_run` 提交远程作业（需审批）→ 定期 `remote_status` 监控、`remote_logs` 查日志 → 结束后 `remote_pull` 拉回输出 → `artifact_save` 归档。详见 [docs/remote-compute.md](docs/remote-compute.md) 与 remote-compute 技能。
-5. 关键论断：提取论断 → 评审子代理对照执行记录核查（见 scientific-reviewer 技能）→ `research_review` 归档（写入 `reviews/R0n/report.md`）。
+5. 关键论断：scientific-reviewer 引擎自动评审（新工件/假设更新/manuscript 变更触发，评审模型在 bundle config 显式指定）→ 结论落盘 `reviews/R0n/report.md` 并经 research_* 工具结果的「待处理评审」提醒回传；needs-work/refuted 按提醒处置后自动复审。引擎缺席时按 scientific-reviewer 技能的手动兜底流程评审，`research_review` 归档。
 
 ## 仓库结构
 
@@ -126,7 +129,9 @@ dsh-science/
 │   ├── research-loop.mjs
 │   ├── artifact-registry.mjs
 │   ├── remote-compute.mjs#   远程计算：SSH/local 传输、主机注册+探测、作业提交/监控/拉取/取消
-│   └── remote-hosts-ui.mjs#  远程主机设置页的宿主 REST API（webServer 路由）
+│   ├── workbench.mjs     #   科研工作台：多项目分类/状态追踪（research_project_* 工具 + .dsh/workbench.json）
+│   ├── remote-hosts-ui.mjs#  远程主机设置页的宿主 REST API（webServer 路由）
+│   └── workbench-ui.mjs  #   科研工作台设置页的宿主 REST API（webServer 路由 /dsh-science/workbench/*）
 ├── client/               # client 插件（设置页 UI，bundle/profile 级）
 │   └── remote-hosts-ui/  #   src/index.js 源码 · lib/client.js 打包产物（build-client-bundle.mjs）
 ├── preset/               # agent-preset 形态（engines 镜像，用 sync-engines.sh 同步）
@@ -140,7 +145,7 @@ dsh-science/
 │   ├── sync-engines.sh   # 镜像 engines/ -> preset/engines/
 │   ├── init-project.sh   # 项目骨架（无需科学模式会话）
 │   ├── build-client-bundle.mjs # client 源码 -> __ModuleLoader__ bundle（lib/client.js）
-│   ├── smoke-test.mjs    # 125 项检查（临时工作区，node >= 18）
+│   ├── smoke-test.mjs    # 188 项检查（临时工作区，node >= 18）
 │   └── stability-test.mjs# 25 项并发/原子性/压力检查（锁/丢失更新/soak/迁移）
 └── test/verify-bundle.sh # 隔离端到端 bundle 安装 + boot + client 扫描检查
 ```

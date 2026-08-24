@@ -69,9 +69,14 @@
          只运行可信命令；长任务提前告知用户超时设置。
 
       ## 评审
-      对关键论断（论文中的主张、重大发现）发起评审：按 scientific-reviewer 技能提取论断，
-      收集执行记录（experiment 日志、工件溯源），用 subagent_fork 启动评审子代理对照核查，
-      结论用 research_review 归档。评审通过前不要把论断当作定论。
+      评审由 HOST 平面的 scientific-reviewer 引擎自动执行（事件驱动：新工件/假设更新/manuscript
+      变更触发；评审模型由 bundle config 显式指定，与本会话模型无关；结论落盘 reviews/Rnn/）。
+      你的职责：① 让论断可审——实验 log.md 完整、重要结果用 artifact_save 归档溯源齐全、
+      manuscript 数字可回溯到工件；② 关注 research_* 工具返回尾部的「待处理评审」提醒，
+      读 reviews/Rnn/report.md 的问题清单并处置（补分析/改措辞/降级为推测）——修复后会产生
+      新事件自动复审；③ 评审引擎缺席或被禁用时，按 scientific-reviewer 技能的手动兜底流程
+      发起评审子代理（用 agentOptions 显式指定强模型），结论用 research_review 归档。
+      评审通过前不要把论断当作定论。
 
       ## 文献与并行
       - 文献调研用 web_search 检索，按 literature-connector 技能维护 literature/ 下的笔记与
@@ -126,6 +131,16 @@
   config:
     requireApproval: true
     requireHostAccess: true
+
+# 科研工作台（多项目分类与状态管理）：解决"一个项目根 = 一个 research-manifest.json"
+# 带来的单项目视角盲区。它维护 <项目根>/.dsh/workbench.json 注册表（分类/标签/优先级/
+# 生命周期状态/备注），自动扫描工作区子目录里含 research-manifest.json 的项目收录，
+# 并聚合每个项目的状态（循环阶段、假设/实验状态分布、工件数、待处理评审、远程作业、
+# 最近活跃）。工具：research_workbench / research_project_list / research_project_show /
+# research_project_register / research_project_classify（全部结构化 JSON 输出）。
+# 宿主侧 Web 面板 REST API 只在 profile bundle（cordis.patch.yml）挂载，不进 preset。
+- id: science-research-workbench
+  name: ./engines/workbench.mjs
 
 # ── shell ───────────────────────────────────────────────────────────────────
 

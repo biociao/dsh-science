@@ -14,7 +14,9 @@
 - **Versioned artifacts with provenance** — `artifact_save` / `artifact_list` / `artifact_show` / `artifact_diff` / `artifact_verify` / `artifact_deprecate` / `artifact_reproduce`: every result saved as `artifacts/<name>/v<N>/` with per-file SHA-256, `artifact.json` provenance (command / inputs / environment / envFile) and an append-only `provenance.md`.
 - **Remote compute engine (SSH / HPC clusters)** — 16 tools: `remote_host_add` / `remote_host_probe` / `remote_host_notes` / `remote_run` / `remote_status` / `remote_logs` / `remote_pull` / `remote_cancel` / `remote_exec` etc. Connect lab workstations or HPC clusters via `~/.ssh/config` aliases (nothing installed on the host, zero third-party deps). Long bioinformatics jobs run as detached processes on workstations or via `sbatch` on SLURM — they survive connection loss; submission asks for approval by default; `remote_status` batch-monitors and auto-transitions state (running → succeeded/failed/killed); `remote_pull` fetches outputs back (files over the size threshold stay on the host with their paths recorded).
 - **Remote Hosts config UI (bundle/profile-level)** — a Settings > 远程主机 page (the analog of Claude Science's Settings > Compute > SSH hosts): list/add/probe/edit/remove hosts, plus each project's access allowlist and job summary. Host-side REST API (`webServer` route `/dsh-science/remote-hosts/*`, `engines/remote-hosts-ui.mjs`) + client bundle (`client/remote-hosts-ui/`, built by `scripts/build-client-bundle.mjs`) sharing the same data files as the remote engine. Requires a web-process restart to activate (see [docs/remote-hosts-ui.md](docs/remote-hosts-ui.md)).
+- **Research Workbench (multi-project classification & status)** — a Settings > 科研工作台 page plus `research_workbench` / `research_project_list` / `research_project_show` / `research_project_register` / `research_project_classify` tools. It auto-discovers every project folder (a directory with `research-manifest.json`) under a workbench root, keeps classification metadata (**category / tags / priority / lifecycle status / notes**) in `<workbench-root>/.dsh/workbench.json`, and aggregates each project's *live* status — loop phase, hypothesis & experiment status distribution, artifact count, pending reviews, remote job count, last activity. Group / filter / sort by category, status, priority, or tag, and get a global summary. The single-project Research loop engine (below) stays per-project; this workbench is the *umbrella* layer that makes many projects manageable. Host-side REST API (`webServer` route `/dsh-science/workbench/*`, `engines/workbench-ui.mjs`) + the same client bundle (see [docs/workbench.md](docs/workbench.md)).
 - **Model Tier router (tiered, cross-provider)** — via the companion bundle [`dsh-model-tier`](packages/dsh-model-tier/): within one session, automatically routes auxiliary requests (session titles, compaction summaries) and subagent/background tasks to a **light tier**, keeps the main conversation on the **default tier**, and escalates complex work (deep subagent chains, very long inputs) to a **strong tier** — each tier may point at a **different provider** (e.g. strong GLM-5.3 / default deepseek-v4-flash / light minimax-M3), mirroring Claude Code's Opus/Sonnet/Haiku strategy. Built on DSH's native `agent/request` + `llm/stream` waterfall extension points; a no-op when the tier's provider is unregistered. Installed automatically with dsh-science, but also standalone-installable into any profile (`dsh plugin add dsh-model-tier`).
+- **Independent auto-review engine (Scientific Reviewer, HOST plane)** — the analog of Claude Science's reviewer agent (actor-critic): watches main-session turn boundaries, fires on events (new artifact versions / hypothesis updates / manuscript changes), collects claims and execution records read-only, then runs an independent review call with the **review model explicitly set in the bundle config** — decoupled from the working model, so a small model can execute while a strong reasoning model reviews. Verdicts land in `reviews/Rnn/` + the manifest (supported/refuted/inconclusive can conclude a testing hypothesis); findings flow back to the main agent via a "pending reviews" notice appended to every `research_*` tool result, and fixes trigger automatic re-review. Optional `gate: true` blocks concluding a hypothesis whose latest review is needs-work/refuted (`ERR_REVIEW_GATE`).
 - **11 science skills** — research-loop, science-project-setup, artifact-provenance, scientific-reviewer, literature-connector, parallel-delegation, manuscript-writing, bioinformatics-toolkit, conda-environments, data-inventory, remote-compute.
 
 All in-repo engine plugins are **zero-dependency** (Node built-ins + the system OpenSSH binaries, sharing `engines/core.mjs`) and register plain cordis tools; the companion `dsh-model-tier` router is likewise zero-dependency. Installable either as a profile bundle (`dsh plugin add`) or as an agent preset (`科学模式`).
@@ -73,9 +75,11 @@ dsh plugin --profile web add dsh-science            # after npm publish
 dsh plugin --profile web add "github:biociao/dsh-science"
 ```
 
-Restart the profile (or refresh the Web GUI). The bundle inserts the three engines
-into the profile layer stack; the `research_*` / `artifact_*` / `remote_*` tools
-become available to every agent on that profile.
+Restart the profile (or refresh the Web GUI). The bundle inserts the research /
+artifact / remote-compute engines, the research-workbench engine, the host-side
+`workbench-ui` + `remote-hosts-ui` REST engines, and the scientific-reviewer engine
+into the profile layer stack; the `research_*` / `artifact_*` / `remote_*` /
+`research_project_*` tools become available to every agent on that profile.
 
 ### Option B — agent preset (full 科学模式 experience, per-agent)
 
@@ -111,9 +115,13 @@ bash scripts/install-skills.sh          # -> ~/.dsh/skills (respects $DSH_HOME)
    → `remote_run` a background job (approval required) → poll `remote_status` /
    `remote_logs` → `remote_pull` outputs when done → `artifact_save` to archive.
    See [docs/remote-compute.md](docs/remote-compute.md) and the `remote-compute` skill.
-5. For key claims: extract the claim, have a review subagent check it against the
-   execution records (see the `scientific-reviewer` skill), archive with
-   `research_review` (writes `reviews/R0n/report.md`).
+5. Key claims are reviewed automatically by the scientific-reviewer engine (fired by
+   new artifacts / hypothesis updates / manuscript changes; the review model is set
+   explicitly in the bundle config). Verdicts land in `reviews/R0n/report.md` and flow
+   back via the "pending reviews" notice appended to `research_*` tool results —
+   address needs-work/refuted items and the fix triggers a re-review. If the engine is
+   absent, follow the manual fallback in the `scientific-reviewer` skill and archive
+   with `research_review`.
 
 ## Repository layout
 
@@ -128,9 +136,11 @@ dsh-science/
 │   ├── research-loop.mjs
 │   ├── artifact-registry.mjs
 │   ├── remote-compute.mjs#   SSH/local transports, host registry + probe, job submit/monitor/pull/cancel
-│   └── remote-hosts-ui.mjs#  Remote Hosts 设置页的宿主 REST API（webServer 路由）
+│   ├── workbench.mjs     #   科研工作台：多项目分类/状态追踪（research_project_* 工具 + .dsh/workbench.json）
+│   ├── remote-hosts-ui.mjs#  Remote Hosts 设置页的宿主 REST API（webServer 路由）
+│   └── workbench-ui.mjs  #   科研工作台设置页的宿主 REST API（webServer 路由 /dsh-science/workbench/*）
 ├── client/               # client 插件（设置页 UI，bundle/profile 级）
-│   └── remote-hosts-ui/  #   src/index.js 源码 · lib/client.js 打包产物（build-client-bundle.mjs）
+│   └── remote-hosts-ui/  #   src/index.js（远程主机页）+ src/workbench.js（科研工作台页）· lib/client.js 打包产物
 ├── preset/               # agent-preset form (mirrors engines/ via sync-engines.sh)
 │   ├── agent.cordis.yml  #   references ./engines/*.mjs (relative, preset mount)
 │   ├── preset.yml
@@ -142,7 +152,7 @@ dsh-science/
 │   ├── sync-engines.sh   # mirror engines/ -> preset/engines/
 │   ├── init-project.sh   # project skeleton without a science session
 │   ├── build-client-bundle.mjs # wrap client src -> __ModuleLoader__ bundle (lib/client.js)
-│   ├── smoke-test.mjs    # 125 checks against a temp workspace (node >= 18)
+│   ├── smoke-test.mjs    # 188 checks against a temp workspace (node >= 18)
 │   └── stability-test.mjs# 25 concurrency/atomicity/stress checks (locks, lost-update, soak, migration)
 └── test/verify-bundle.sh # isolated end-to-end bundle install + boot + client scan check
 ```
