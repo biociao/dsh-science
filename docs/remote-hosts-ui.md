@@ -55,8 +55,10 @@ dsh plugin --profile web add "github:biociao/dsh-science"   # 或已有 symlink 
 ```
 
 > 说明：`dsh.client` 的 bundle 缓存按内容哈希刷新；`dsh.client.inject` 声明客户端模块
-> 依赖（`@deepseek-ai/dsh-client-runtime` 提供 slots 服务、`@deepseek-ai/dsh-client-ui-settings`
-> 提供设置面板，均为 shell 内置 client 模块）。
+> 依赖（`@deepseek-ai/dsh-client-ui-settings` 提供设置面板，为 shell 内置 client 模块）。
+> 注意：`@deepseek-ai/dsh-client-runtime` 自 dsh 0.1.5 起已从发行版移除，不要再列入
+> `inject`——client-modules 对解析不到的 inject 条目是**静默跳过**（不报错，但该依赖顺序
+> 也不再生效）；`slots` 服务由 shell 的 client-modules 运行时提供。
 > 注意：`cordis.patch.yml` 里携带 client bundle 的引擎行，`name` 必须是**包根名**
 > `dsh-science`（经 `exports["."]` 指向宿主引擎文件）——client-modules 按 loader 条目名
 > `require.resolve("<name>/package.json")` 定位 `dsh.client` 声明，子路径条目名

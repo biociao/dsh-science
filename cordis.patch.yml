@@ -29,6 +29,63 @@
     # 解析不到 package.json，客户端 bundle 会被静默跳过（设置页不出现）。
     - id: science-remote-hosts-ui
       name: dsh-science
+    # 科研工作台引擎：多项目分类与状态管理（research_workbench / research_project_list /
+    # research_project_show / research_project_register / research_project_classify），
+    # 维护 <工作台根>/.dsh/workbench.json 注册表（分类/标签/优先级/生命周期状态/备注），
+    # 自动扫描工作区子目录里含 research-manifest.json 的项目收录，并聚合每个项目的状态
+    # （循环阶段、假设/实验状态分布、工件数、待处理评审、远程作业、最近活跃）。
+    # preset「科学模式」同样挂载本引擎（agent 工具），此处让 bundle 形态 profile 的
+    # agent 也获得这些工具。
+    - id: science-research-workbench
+      name: dsh-science/engines/workbench.mjs
+    # 科研工作台 Web 面板的宿主侧：为浏览器设置页提供 REST API（webServer 前缀路由
+    # /dsh-science/workbench/*），复用 workbench 引擎的注册表读写/项目发现/状态汇总逻辑，
+    # 供 client bundle 的「科研工作台」设置页调用。仅 bundle 形态挂载（不进 preset）。
+    - id: science-workbench-ui
+      name: dsh-science/engines/workbench-ui.mjs
+    # Biomni 模式引擎（资源宇宙 / 检索增强规划 / 计划清单 / 反思自批判）：
+    # 与科研工作台/reviewer 并列的另一种研究本体——面向"宽任务快速上手"的通用生物医学
+    # agent。tools 在 profile 层可见（与 research_*/artifact_*/remote_* 一致）；persona 与
+    # 工作流走 preset「Biomni 模式」（preset-biomni/agent.cordis.yml）。工具：
+    #   biomni_resources_list / biomni_registry_add|remove|show （资源宇宙 .biomni/registry.json）
+    #   biomni_retrieve（检索增强规划，返回聚焦子集 + 计划骨架）
+    #   biomni_plan_init|update|status（研究计划与状态 .biomni/plan.json）
+    #   biomni_reflect|list（反思自批判 .biomni/reflect.jsonl）
+    # 子路径导出（dsh-science/engines/*.mjs）；跨模块相对引用（./core.mjs、./biomni-registry.mjs）
+    # 在包内解析，bundle 形态同样可用。
+    - id: biomni-registry
+      name: dsh-science/engines/biomni-registry.mjs
+    - id: biomni-retriever
+      name: dsh-science/engines/biomni-retriever.mjs
+    - id: biomni-plan
+      name: dsh-science/engines/biomni-plan.mjs
+    - id: biomni-reflect
+      name: dsh-science/engines/biomni-reflect.mjs
+    # 独立自动评审引擎（HOST 平面，对齐 Claude Science 的 reviewer agent）：
+    # ctx.on("agent/request") 观察主会话 turn 边界（跳过子代理会话），磁盘快照
+    # diff 触发（新工件版本/假设更新/manuscript 变更），引擎只读收集执行记录后
+    # 用 config.model 显式指定的评审模型经 ctx.llm.stream 发起独立评审调用
+    # （不经会话、不经 model-tier 路由），结论经 research-loop 的 recordReview
+    # 落盘 reviews/Rnn/ + manifest；dashboard 与 research_* 工具结果附
+    # 「待处理评审」提醒；gate: true 时启用门禁（最新评审 needs-work/refuted
+    # 的假设禁止经 research_findings 下结论，抛 ERR_REVIEW_GATE）。
+    # 用户 profile 覆盖：- update: - id: science-scientific-reviewer  config: ...
+    - id: science-scientific-reviewer
+      name: dsh-science/engines/scientific-reviewer.mjs
+      config:
+        enabled: true
+        model: # 评审模型（显式指定；建议强推理模型。缺省回落全局默认模型并 warn）
+          provider: zai-coding-cn
+          model: glm-5.3
+          reasoningEffort: high
+        triggers:
+          onArtifact: true # artifacts/artifacts.json 出现新版本
+          onHypothesis: true # manifest 中假设 updatedAt/status 变化（新 findings）
+          onManuscript: true # manuscript/ 下文件 mtime 变化
+          minIntervalSec: 180 # 同一项目两次评审最小间隔（防抖/控成本）
+          maxClaimsPerReview: 10
+          maxContextChars: 60000 # 喂给评审模型的执行记录总预算
+        gate: false # true → 写 <root>/.reviewer/gate 标记，启用评审门禁
     # 模型分档路由（HOST 平面）：来自配套依赖包 dsh-model-tier（package.json
     # dependencies；profile 安装为 hoisted nodeLinker，包根名可解析）。
     # dsh-model-tier 也可脱离 dsh-science 单独安装到任意 profile

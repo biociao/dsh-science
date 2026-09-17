@@ -1,0 +1,2 @@
+name: Biomni 模式
+description: Biomni 式通用生物医学研究 harness：检索增强规划（biomni_retrieve）→ 研究计划与状态清单（biomni_plan_*）→ 代码优先执行 → 每步反思自批判（biomni_reflect），维护 .biomni/ 的 registry/plan/reflect 状态。与「科学模式」并列，适合宽任务快速上手、资源宇宙驱动的通用生物医学分析。

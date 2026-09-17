@@ -242,6 +242,8 @@ function apply(ctx) {
     { name: "settings.section", id: "remote-hosts", order: 5, label: "远程主机" },
     (props) => h(Page, null),
   ))
+  // 科研工作台面板（多项目分类/状态管理），来自同一 bundle 的 workbench.js（拼接注入）
+  applyWorkbench(ctx)
 }
 
 // 构建脚本会把 `module.exports = plugin` 追加到包装末尾（factory 内导出）。

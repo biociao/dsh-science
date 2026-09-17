@@ -1,7 +1,7 @@
 {
   "name": "dsh-science",
-  "version": "0.2.0",
-  "description": "Claude Science-style research workbench for DeepSeek Harness: ReAct research-loop engine (research_* tools), versioned artifacts with provenance (artifact_* tools), SSH remote-compute engine for long bioinformatics jobs on workstations/HPC (remote_* tools), and 11 science skills for genomics / pathogens / bioinformatics. Ships the tiered cross-provider model router via the companion dsh-model-tier bundle.",
+  "version": "0.3.0",
+  "description": "Claude Science-style research workbench for DeepSeek Harness: ReAct research-loop engine (research_* tools), multi-project workbench (research_workbench / research_project_* tools + Web panel for classifying & tracking project status), versioned artifacts with provenance (artifact_* tools), SSH remote-compute engine for long bioinformatics jobs on workstations/HPC (remote_* tools), a Biomni-style general-purpose biomedical agent mode (retrieval-augmented planning + code-first execution + reflection: biomni_* tools + preset-biomni), and 11 science skills for genomics / pathogens / bioinformatics. Ships the tiered cross-provider model router via the companion dsh-model-tier bundle.",
   "type": "module",
   "license": "MIT",
   "author": "fangchao <fangchao@genomics.cn>",
@@ -28,6 +28,9 @@
     "genomics",
     "pathogen",
     "bioinformatics",
+    "biomni",
+    "retrieval-augmented",
+    "biomedical-agent",
     "remote-compute",
     "ssh",
     "hpc",
@@ -43,6 +46,7 @@
     "./engines/*": "./engines/*",
     "./skills/*": "./skills/*",
     "./preset/*": "./preset/*",
+    "./preset-biomni/*": "./preset-biomni/*",
     "./client": "./client/remote-hosts-ui/lib/client.js",
     "./client/*": "./client/*",
     "./package.json": "./package.json"
@@ -51,6 +55,7 @@
     "engines",
     "client",
     "preset",
+    "preset-biomni",
     "skills",
     "scripts",
     "cordis.patch.yml",
@@ -68,11 +73,12 @@
     },
     "client": {
       "platform": "web",
-      "inject": ["@deepseek-ai/dsh-client-runtime", "@deepseek-ai/dsh-client-ui-settings"]
+      "inject": ["@deepseek-ai/dsh-client-ui-settings"]
     }
   },
   "scripts": {
-    "test": "node scripts/smoke-test.mjs && node packages/dsh-model-tier/test/model-tier.test.mjs",
+    "test": "node scripts/smoke-test.mjs && node scripts/biomni-smoke-test.mjs && node packages/dsh-model-tier/test/model-tier.test.mjs && node test/scientific-reviewer.test.mjs && node scripts/validate-presets.mjs",
+    "test:presets": "node scripts/validate-presets.mjs",
     "test:stability": "node scripts/stability-test.mjs",
     "sync": "bash scripts/sync-engines.sh",
     "build:client": "node scripts/build-client-bundle.mjs",

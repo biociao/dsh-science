@@ -1,13 +1,18 @@
 #!/usr/bin/env node
-// build-client-bundle.mjs —— 把 client/remote-hosts-ui/src/index.js 打包为
+// build-client-bundle.mjs —— 把 client/remote-hosts-ui/src/ 下的 source 文件打包为
 // __ModuleLoader__.load({ id, factory }) 格式的 client bundle（lib/client.js）。
 //
 // 背景：DSH 的 client 插件以预构建 bundle 分发（`dsh.client` + `exports["./client"]`），
 // 正常由 dsh 仓库的 `pnpm run build` 工具链（rolldown）生成。本项目插件零依赖、
 // 只用 React.createElement + 浏览器原生 fetch，因此用本脚本做等价的手写包装：
 // factory 内注入 `const React = require("react")` 与 `const h = React.createElement`，
-// 追加 `module.exports = plugin`，其余源码原样内嵌。将来若接入正式构建工具链，
-// 只需替换本脚本的输出（lib/client.js 仍是被加载的产物）。
+// 追加 `module.exports = plugin`，其余源码原样内嵌。
+//
+// 注意：DSH 的 client-modules 按包名只解析一个 `exports["./client"]`/`dsh.client` 声明，
+// 因此本 bundle 同时承载「远程主机」与「科研工作台」两个设置页 —— 把多个 source 文件
+// 按顺序拼接进同一个 factory 作用域（共享 React/h/主题变量），由主入口 index.js 的
+// apply 统一注册两个 slots。拼接顺序：先 workbench.js（定义 applyWorkbench 等），再
+// index.js（主入口，引用 applyWorkbench）。
 //
 // 用法：node scripts/build-client-bundle.mjs [--check]
 //   --check：只校验产物存在且与源码哈希一致（CI 用）
@@ -19,12 +24,14 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
-const srcPath = path.join(root, "client", "remote-hosts-ui", "src", "index.js");
+const srcDir = path.join(root, "client", "remote-hosts-ui", "src");
+// 拼接顺序：先 workbench.js（定义 applyWorkbench），后 index.js（主入口）。
+const sources = ["workbench.js", "index.js"].map((f) => path.join(srcDir, f));
 const outPath = path.join(root, "client", "remote-hosts-ui", "lib", "client.js");
 
 const BUNDLE_ID = "dsh-science";
 
-function buildBundle(src) {
+function buildBundle(parts) {
   return [
     'window.__ModuleLoader__.load({',
     `\tid: ${JSON.stringify(BUNDLE_ID)},`,
@@ -34,7 +41,7 @@ function buildBundle(src) {
     '\t\tconst React = require("react");',
     "\t\tconst h = React.createElement;",
     "\t\t//#region dsh-science/client/remote-hosts-ui/src",
-    src.replace(/\n$/, ""),
+    parts.join("\n"),
     "\t\t//#endregion",
     "\t\tmodule.exports = plugin;",
     "\t\treturn module.exports;",
@@ -44,8 +51,8 @@ function buildBundle(src) {
   ].join("\n");
 }
 
-const src = readFileSync(srcPath, "utf8");
-const bundle = buildBundle(src);
+const parts = sources.map((p) => readFileSync(p, "utf8").replace(/\n$/, ""));
+const bundle = buildBundle(parts);
 
 if (process.argv.includes("--check")) {
   if (!existsSync(outPath)) {
@@ -63,4 +70,4 @@ if (process.argv.includes("--check")) {
 
 writeFileSync(outPath, bundle, "utf8");
 console.log(`✔ 已生成 client bundle：${outPath}`);
-console.log(`   （id=${BUNDLE_ID}，factory 注入 React；源码 ${srcPath}）`);
+console.log(`   （id=${BUNDLE_ID}，factory 注入 React；源码 ${sources.map((s) => path.basename(s)).join(" + ")}）`);

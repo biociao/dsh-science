@@ -22,9 +22,9 @@ I'd like to request adding **dsh-science** to the hub catalog.
 
 - **Repo:** https://github.com/biociao/dsh-science
 - **What it is:** A Claude Science–style research workbench for DeepSeek Harness — a ReAct research-loop engine (`research_init` / `research_state` / `research_hypothesis` / `research_experiment` / `research_findings` / `research_phase` / `research_review`, persisted in `research-manifest.json`), versioned artifacts with provenance (`artifact_save` / `artifact_list` / `artifact_show` / `artifact_reproduce`, `artifacts/<name>/v<N>/` + SHA-256 + `provenance.md`), plus 10 science skills for genomics / pathogens / bioinformatics. Both engine plugins are zero-dependency cordis plugins (Node built-ins only).
-- **Installable:** yes — `package.json` declares `dsh.bundle.patch` (`./cordis.patch.yml`); verified via `dsh plugin --profile web add "github:biociao/dsh-science"` on dsh `0.1.0-rc.6` (isolated profile install + boot check).
+- **Installable:** yes — `package.json` declares `dsh.bundle.patch` (`./cordis.patch.yml`); verified via `dsh plugin --profile web add "github:biociao/dsh-science"` on dsh `0.1.5-rc.1` (isolated profile install + boot check + agent-preset schema check).
 - **Topics:** `dsh-plugin`, `dsh-plugins`.
-- **Verification:** `node scripts/smoke-test.mjs` (23/23 checks); `bash test/verify-bundle.sh` (end-to-end bundle install + boot).
+- **Verification:** `node scripts/smoke-test.mjs` (189/189 checks); `bash test/verify-bundle.sh` (end-to-end bundle install + boot + preset schema gate).
 - **Community PRs:** awesome-dsh-plugin#26, awesome-deepseek-harness#44.
 - **License:** MIT. Actively maintained (this is the v0.1.1 release; issues/PRs welcome).
 
@@ -40,9 +40,9 @@ Thanks!
 
 - **仓库：** https://github.com/biociao/dsh-science
 - **简介：** 面向 DeepSeek Harness 的 Claude Science 式科研工作台——ReAct 研究循环引擎（research_init / research_state / research_hypothesis / research_experiment / research_findings / research_phase / research_review，状态持久化于 research-manifest.json）、带溯源的版本化工件（artifact_save / artifact_list / artifact_show / artifact_reproduce，artifacts/<name>/v<N>/ + SHA-256 + provenance.md），以及面向基因组/病原体/生物信息的 10 个科研技能。两个引擎插件均为零依赖 cordis 插件（仅用 Node 内置模块）。
-- **可安装：** 是——package.json 声明 `dsh.bundle.patch`（./cordis.patch.yml）；已在 dsh 0.1.0-rc.6 上用 `dsh plugin --profile web add "github:biociao/dsh-science"` 验证（隔离 profile 安装 + boot 检查）。
+- **可安装：** 是——package.json 声明 `dsh.bundle.patch`（./cordis.patch.yml）；已在 dsh 0.1.5-rc.1 上用 `dsh plugin --profile web add "github:biociao/dsh-science"` 验证（隔离 profile 安装 + boot 检查 + agent preset schema 校验）。
 - **Topics：** `dsh-plugin`、`dsh-plugins`。
-- **验证：** `node scripts/smoke-test.mjs`（23/23 通过）；`bash test/verify-bundle.sh`（端到端 bundle 安装 + boot）。
+- **验证：** `node scripts/smoke-test.mjs`（189/189 通过）；`bash test/verify-bundle.sh`（端到端 bundle 安装 + boot + preset schema 门禁）。
 - **社区 PR：** awesome-dsh-plugin#26、awesome-deepseek-harness#44。
 - **许可：** MIT。活跃维护中（当前为 v0.1.1，欢迎 issue/PR）。
 

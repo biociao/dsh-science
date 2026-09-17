@@ -90,8 +90,11 @@
 29. **无并发/大文件/快照测试**；23 项断言偏"路径存在/字符串包含"。
 30. **发布未自动化**：v0.1.0 无 CI（GitHub Actions）、无 semantic-release；hub 收录
     还是申请草稿（docs/hub-application.md）。
-31. **dsh 版本兼容未锁定**：只在 dsh 0.1.0-rc.6 验证过，无 peerDependencies/
-    engines 声明对 dsh 的约束；dsh API 演进（tools 注册、exec 结构）无兼容测试。
+31. **dsh 版本兼容未锁定**：无 peerDependencies/engines 声明对 dsh 的约束。
+    已缓解（v0.3.0）：CI 钉版 `0.1.5-rc.1`、`scripts/validate-presets.mjs` 用真实 dsh
+    的插件 schema 逐行校验两个 preset 的 config、`verify-bundle.sh` 增加「boot 未起来
+    即失败」断言 + preset schema 门禁。仍未覆盖：dsh 运行时 API 漂移（工具 exec 结构、
+    `ctx.llm.stream` 参数）只在真机跑一次，没有自动化回归。
 
 ## 二、开发方向（按优先级）
 
@@ -170,3 +173,49 @@ P2（core 抽取 + 工具补全 + 技能可执行化 + CLI）         → v0.2.0
 
 > 说明：迁移在**加载时**应用、在**下次写入**时持久化到磁盘（避免只读操作产生写副作用）。
 > 技能可执行化（方向 13）、CLI（14）、git 集成（15）、领域解耦（16）、CI/自动发版（19）尚未实施，属后续版本。
+
+## v0.3.0：独立自动评审引擎（对齐 Claude Science 的 reviewer agent）
+
+评审从"主 agent 自觉执行的技能流程"升级为 HOST 平面的独立引擎
+（`engines/scientific-reviewer.mjs`，仅 bundle 形态挂载，见根 `cordis.patch.yml`）：
+
+- **观察/触发**：`ctx.on("agent/request")` 观察主会话 turn 边界（跳过子代理会话）；
+  磁盘快照 diff（`<root>/.reviewer/state.json`）触发——新工件版本 / 假设更新 /
+  manuscript 变更，`triggers.minIntervalSec` 防抖。
+- **独立评审调用**：引擎只读收集论断与执行记录，用 `config.model` 显式指定的评审模型
+  经 `ctx.llm.stream()` 发起调用（不经会话、不经 model-tier）——执行可用小模型、
+  评审用强推理模型；缺省回落全局默认模型并 warn。
+- **落盘与联动**：复用 research-loop 新导出的 `recordReview`（reviews/Rnn/report.md +
+  manifest.reviews + history；supported/refuted/inconclusive 终结 testing 假设）；
+  verdict 枚举补 `unverifiable`。
+- **回传与门禁**：dashboard 显示「评审（M，待处理 N）」，所有 `research_*` 工具返回尾部
+  附待处理评审提醒；`gate: true` 时写 `<root>/.reviewer/gate` 标记，research_findings
+  对最新评审 needs-work/refuted 的假设抛 `ERR_REVIEW_GATE`。
+- **测试**：`test/scientific-reviewer.test.mjs` 32 项（触发判定/解析/端到端 mock ctx/
+  门禁/recordReview 导出）；smoke-test 增加契约与挂载断言；verify-bundle 覆盖新行。
+
+## v0.3.0：科研工作台（多项目分类与状态追踪）
+
+解决「一个项目根 = 一个 research-manifest.json」带来的单项目视角盲区（见上文局限 #25）。
+新增 `engines/workbench.mjs`（agent 工具）与 `engines/workbench-ui.mjs`（宿主 webServer
+REST API，供 Web 设置页「科研工作台」调用）：
+
+- **注册表**：`<工作台根>/.dsh/workbench.json` 保存分类元数据（分类/标签/优先级/生命周期
+  状态/备注），原子写 + 文件锁（复用 core 的 withFileLock / writeJsonAtomic）。
+- **发现**：`research_workbench` 扫描工作台根的直接子目录里含 `research-manifest.json` 的
+  项目自动收录；注册表 path 即便缺 manifest 也保留（`hasManifest:false`）。项目路径须落在
+  工作台根内（`ERR_PATH`，符合工作区隔离）。
+- **状态汇总**：读取式聚合每个项目的循环阶段/迭代、假设与实验状态分布、工件总数、
+  待处理评审（verdict ∈ needs-work/refuted）、远程作业状态分布（`.dsh/remotes/jobs.json`）、
+  最近活跃；生命周期状态由注册表显式设置，否则由清单推导（concluded → finished）。
+- **工具**：`research_workbench`（总览，结构化 JSON）/ `research_project_list`（筛选）/
+  `research_project_show`（详情）/ `research_project_register`（登记）/ `research_project_classify`
+  （分类 patch：category/tags/priority/status/notes/name）。全部结构化输出。
+- **Web 面板**：设置页「科研工作台」（`client/remote-hosts-ui/src/workbench.js`，与远程主机页
+  共用一个 client bundle——DSH 按包名只解析一个 `exports["./client"]`，故 build-client-bundle.mjs
+  改为按序拼接多个 source 文件）。宿主 REST 路由 `/dsh-science/workbench/*`（overview/list/
+  classify/register/remove，同源防护）。
+- **挂载**：`research-workbench` 进 preset（agent 工具）与 bundle；`workbench-ui` 仅 bundle
+  （webServer 宿主）；`sync-engines.sh` 镜像清单加 `workbench.mjs`。
+- **测试**：smoke-test 增加「11. 科研工作台」19 项（发现/汇总/分类/列表/详情/校验/路由/
+  同源）；`build-client-bundle.mjs --check` 一致性校验。
