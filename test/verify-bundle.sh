@@ -19,19 +19,19 @@ trap 'rm -rf "$TMP"' EXIT
 
 export DSH_HOME="$HOME_HOME"
 
-echo "== 1/6 包结构检查 =="
+echo "== 1/7 包结构检查 =="
 [ -f "$ROOT/package.json" ] && [ -f "$ROOT/cordis.patch.yml" ] || { echo "缺少 package.json / cordis.patch.yml" >&2; exit 1; }
 [ -f "$ROOT/engines/research-loop.mjs" ] && [ -f "$ROOT/engines/artifact-registry.mjs" ] && [ -f "$ROOT/engines/remote-compute.mjs" ] && [ -f "$ROOT/engines/remote-hosts-ui.mjs" ] && [ -f "$ROOT/engines/workbench.mjs" ] && [ -f "$ROOT/engines/workbench-ui.mjs" ] || { echo "缺少引擎" >&2; exit 1; }
 [ -f "$ROOT/client/remote-hosts-ui/lib/client.js" ] || { echo "缺少 client bundle（先运行 node scripts/build-client-bundle.mjs）" >&2; exit 1; }
 [ -f "$ROOT/packages/dsh-model-tier/engines/model-tier.mjs" ] && [ -f "$ROOT/packages/dsh-model-tier/cordis.patch.yml" ] || { echo "缺少配套包 packages/dsh-model-tier" >&2; exit 1; }
 
-echo "== 2/6 pnpm pack（模拟 npm 发布物）=="
+echo "== 2/7 pnpm pack（模拟 npm 发布物）=="
 ( cd "$ROOT" && pnpm pack --pack-destination "$TMP" >/dev/null )
 TGZ="$(ls "$TMP"/*.tgz | head -1)"
 echo "   tarball: $TGZ"
 tar -tzf "$TGZ" | grep -E "engines/(research-loop|artifact-registry|remote-compute|remote-hosts-ui)\.mjs|client/remote-hosts-ui/(lib|src)/|cordis\.patch\.yml|preset/agent\.cordis\.yml|skills/[^/]+/SKILL\.md" | head -10
 
-echo "== 3/6 本机 git 仓库（供 git+file 依赖）=="
+echo "== 3/7 本机 git 仓库（供 git+file 依赖）=="
 git init -q "$GIT_DIR"
 cp -R "$ROOT"/{package.json,cordis.patch.yml,engines,preset,skills,client} "$GIT_DIR/"
 # 配套路由包 dsh-model-tier 单独建仓（未发布 npm）。把验证副本里 dsh-science 对它的
@@ -52,12 +52,17 @@ PY
 git -C "$GIT_DIR" add -A
 git -C "$GIT_DIR" -c user.name=verify -c user.email=verify@local commit -qm "verify"
 
-echo "== 4/6 隔离 profile 安装 bundle =="
+echo "== 4/7 隔离 profile 安装 bundle =="
 mkdir -p "$HOME_HOME/profiles/web"
 cat > "$HOME_HOME/cordis.patch.yml" <<'EOF'
-# 验证专用：webserver 用 OS 分配端口，避免与运行中的 GUI(3080) 冲突
+# 验证专用：webserver 用 OS 分配端口，避免与运行中的 GUI(3080) 冲突。
+# 注意：@deepseek-ai/dsh-host-webserver 的 Config 里 host 与 port **都是 required**
+# （host ∈ {127.0.0.1, 0.0.0.0}），只覆盖 port 会让整个 plugin tree 加载失败：
+#   plugin tree failed to load: … invalid config: $.host missing required value
+# 而旧版脚本对此完全没有断言，于是「boot 失败」也会打印「全部验证通过」。
 - id: webserver
   config:
+    host: 127.0.0.1
     port: 0
 EOF
 # dsh-model-tier 未发布 npm：预置 profile 清单（模板形态），plugin add 内的
@@ -87,7 +92,8 @@ autoInstallPeers: false
 # 属 exotic subdep，需关闭供应链接收检查；发布 npm 后此开关可移除。
 blockExoticSubdeps: false
 EOF
-# 注意：dsh 需为已验证版本（0.1.0-rc.6）；新版本可能改变 plugin add / profile 结构。
+# 注意：dsh 需为已验证版本（当前钉 0.1.5-rc.1，见 .github/workflows）；新版本可能改变
+# plugin add / profile / webserver config 结构 —— 出现新结构时先修本脚本再升钉版。
 # 不要吞掉 plugin add 的输出——失败时打印以便定位。
 ADD_OUT="$(dsh plugin --profile web add "git+file://$GIT_DIR" 2>&1 || true)"
 echo "$ADD_OUT" | grep -E "Packages|Done" || true
@@ -102,15 +108,28 @@ PY
 # 配套包经 dsh-science 的依赖安装并被 hoisted 到 profile 顶层 node_modules
 node -e "const {createRequire}=require('module');const r=createRequire('$HOME_HOME/profiles/web/cordis.yml');console.log('   dsh-model-tier 可解析 ✓', r.resolve('dsh-model-tier/package.json'))"
 
-echo "== 5/6 组合检查（--dump-config）=="
+echo "== 5/7 组合检查（--dump-config）=="
 OUT="$(dsh --profile web --dump-config 2>&1 || true)"
 for row in science-research-loop science-artifact-registry science-remote-compute science-remote-hosts-ui science-scientific-reviewer model-tier model-tier-ui; do
   echo "$OUT" | grep -q "$row" && echo "   行 $row 已合入组合 ✓" || { echo "   行 $row 缺失 ✗"; exit 1; }
 done
 
-echo "== 6/6 引导启动（加载器解析 + apply + client bundle 扫描）=="
+echo "== 6/7 agent preset 配置 schema 校验（真实 dsh schema）=="
+# preset 挂载发生在「会话选中该 preset」时，引导日志与 --dump-config 都看不到它，
+# 所以必须用真实 dsh 的插件 schema 逐行跑 config 校验（历史上 persona 的
+# text→prefix 破坏就是这样漏过全部门禁的）。
+PRESET_VALIDATE_REQUIRE=1 node "$ROOT/scripts/validate-presets.mjs"
+
+echo "== 7/7 引导启动（加载器解析 + apply + client bundle 扫描）=="
 BOOT_LOG="$TMP/boot.log"
 timeout 40 dsh --profile web >"$BOOT_LOG" 2>&1 || true
+# 先把「整体没起来」拦下来：旧脚本只 grep dsh-science 相关错误，boot 因 webserver
+# 配置非法而整体失败时仍会打印「全部验证通过」（假绿）。
+if grep -qE "plugin tree failed to load|failed to apply loader entry" "$BOOT_LOG"; then
+  echo "--- 引导日志：plugin tree 加载失败 ---"
+  grep -E "plugin tree failed to load|failed to apply loader entry|invalid config|missing required value" "$BOOT_LOG" | head -20
+  echo "✗ 组合未成功引导（--dump-config 能过 ≠ 能启动）"; exit 1
+fi
 if grep -qE "dsh-science/engines|science-research-loop|science-artifact-registry|science-remote-compute|science-remote-hosts-ui|science-research-workbench|science-workbench-ui|science-scientific-reviewer" "$BOOT_LOG"; then
   echo "--- 引导日志中的引擎相关错误 ---"
   grep -E "dsh-science/engines|science-research-loop|science-artifact-registry|science-remote-compute|science-remote-hosts-ui|science-research-workbench|science-workbench-ui|science-scientific-reviewer" "$BOOT_LOG" | head -5

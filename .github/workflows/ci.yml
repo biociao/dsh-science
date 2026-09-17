@@ -39,7 +39,7 @@ jobs:
   bundle-verify:
     name: Bundle verify (real dsh, release-grade)
     runs-on: ubuntu-latest
-    # node >= 22.13：dsh 0.1.0-rc.6 内部自带 pnpm 11.x（依赖 node:sqlite，node 20 不可用）
+    # node >= 22.13：dsh 内部自带 pnpm 11.x（依赖 node:sqlite，node 20 不可用）
     if: >
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'pull_request' && github.base_ref == 'main')
@@ -51,6 +51,6 @@ jobs:
       - name: Enable pnpm (corepack)
         run: corepack enable
       - name: Install dsh CLI (pinned to verified version)
-        run: npm install -g @deepseek-ai/dsh@0.1.0-rc.6
-      - name: Verify bundle install + boot
+        run: npm install -g @deepseek-ai/dsh@0.1.5-rc.1
+      - name: Verify bundle install + boot + preset schemas
         run: bash test/verify-bundle.sh

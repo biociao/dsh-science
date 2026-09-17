@@ -21,10 +21,15 @@
 
 # The research persona, shadowing the deployment default for this agent.
 # `{{model}}` and `{{cwd}}` resolve from the agent's own route and workspace.
+#
+# dsh >= 0.1.5 的 @deepseek-ai/dsh-persona 把 schema 从 { text, complete,
+# includeRuntimeContext } 改为 { prefix(必填), suffix, complete,
+# includeRuntimeContext }；旧键 `text` 已不存在，缺 prefix 会让该行挂载失败
+# （$.prefix missing required value）。整段人设因此放 `prefix`，`suffix` 留空。
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
-    text: >-
+    prefix: >-
       You are a scientific research agent powered by the {{model}} model, working in
       {{cwd}}. Your specialty is life science: genomics, human health, pathogens, and
       bioinformatics. You run research like Claude Science: an iterative ReAct loop
@@ -180,6 +185,9 @@
 
 # ── goals ───────────────────────────────────────────────────────────────────
 
+# 注意：stock `standard` preset 在这里还有一行 command-goal，本 preset 刻意不再重复声明
+# ——dsh 0.1.5 的宿主组合（`@deepseek-ai/dsh-base` cordis.patch.yml）已挂载
+# `@deepseek-ai/dsh-command-goal`，/goal 斜杠命令在进程级可用。缺这一行**不是**兼容性缺口。
 - id: tool-goal
   name: '@deepseek-ai/dsh-tool-goal'
 
@@ -248,6 +256,7 @@
       config:
         provider: spawn
         toolName: subagent
+        modelSelectionSettings: true
         backgroundMode: continuable
 
     - id: tool-subagent-fork
@@ -263,7 +272,7 @@
       config:
         provider: codex
         toolName: subagent_codex
-        enableRunInBackground: false
+        backgroundMode: one-shot
         maxDepth: provider-managed
 
     - id: tool-subagent-claude-code
@@ -272,7 +281,7 @@
       config:
         provider: claude-code
         toolName: subagent_claude_code
-        enableRunInBackground: false
+        backgroundMode: one-shot
         maxDepth: provider-managed
 
     - id: workflow-worker-thread
@@ -299,8 +308,17 @@
   config:
     allowParallelInProgress: true
 
+# 刻意的偏离：stock `standard` preset 为 `fetch: true`，这里保持 `false`（只保留
+# web_search，不开放 web_fetch 抓取）。这是产品决定 —— 若需要抓取网页全文，
+# 把它改成 true 即可（skills/literature-connector 走的是 web_search，不依赖 fetch）。
 - id: tool-web
   name: '@deepseek-ai/dsh-tool-web'
   config:
     fetch: false
     searchTimeoutMs: 60000
+
+# `present`（交付物声明）自 dsh 0.1.5 起**只由 agent preset 提供**——宿主组合
+# （dsh-base / dsh-web-app）不含该行，所以 clone 自旧版 standard preset 而漏掉它
+# 就会让本 preset 的 agent 完全没有 present 工具。补上以对齐 stock standard。
+- id: present
+  name: '@deepseek-ai/dsh-tool-present'

@@ -90,8 +90,11 @@
 29. **无并发/大文件/快照测试**；23 项断言偏"路径存在/字符串包含"。
 30. **发布未自动化**：v0.1.0 无 CI（GitHub Actions）、无 semantic-release；hub 收录
     还是申请草稿（docs/hub-application.md）。
-31. **dsh 版本兼容未锁定**：只在 dsh 0.1.0-rc.6 验证过，无 peerDependencies/
-    engines 声明对 dsh 的约束；dsh API 演进（tools 注册、exec 结构）无兼容测试。
+31. **dsh 版本兼容未锁定**：无 peerDependencies/engines 声明对 dsh 的约束。
+    已缓解（v0.3.0）：CI 钉版 `0.1.5-rc.1`、`scripts/validate-presets.mjs` 用真实 dsh
+    的插件 schema 逐行校验两个 preset 的 config、`verify-bundle.sh` 增加「boot 未起来
+    即失败」断言 + preset schema 门禁。仍未覆盖：dsh 运行时 API 漂移（工具 exec 结构、
+    `ctx.llm.stream` 参数）只在真机跑一次，没有自动化回归。
 
 ## 二、开发方向（按优先级）
 

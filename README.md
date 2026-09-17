@@ -8,7 +8,7 @@
 
 **A Claude Science–style research workbench for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) — for genomics / pathogens / human health / bioinformatics projects.**
 
-> One-liner: **dsh-science** — Claude Science-style research workbench for DSH: ReAct research-loop engine (research_* tools), versioned artifacts with provenance (artifact_* tools), an SSH remote-compute engine (remote_* tools, mirroring Claude Science's Computer / Remote compute clusters), and 11 science skills for genomics / pathogens / bioinformatics.
+> One-liner: **dsh-science** — Claude Science-style research workbench for DSH: ReAct research-loop engine (research_* tools), versioned artifacts with provenance (artifact_* tools), an SSH remote-compute engine (remote_* tools, mirroring Claude Science's Computer / Remote compute clusters), a Biomni-style general-purpose biomedical agent mode (biomni_* tools, replicated from snap-stanford/Biomni), and 12 science skills for genomics / pathogens / bioinformatics.
 
 - **ReAct research loop engine** — `research_init` / `research_state` / `research_hypothesis` / `research_experiment` / `research_findings` / `research_phase` / `research_review` / `research_report`, persisted in a `research-manifest.json` state machine (Question → Hypothesis → Experiment → Observe → Analyze → Conclude → Next Question).
 - **Versioned artifacts with provenance** — `artifact_save` / `artifact_list` / `artifact_show` / `artifact_diff` / `artifact_verify` / `artifact_deprecate` / `artifact_reproduce`: every result saved as `artifacts/<name>/v<N>/` with per-file SHA-256, `artifact.json` provenance (command / inputs / environment / envFile) and an append-only `provenance.md`.
@@ -17,7 +17,8 @@
 - **Research Workbench (multi-project classification & status)** — a Settings > 科研工作台 page plus `research_workbench` / `research_project_list` / `research_project_show` / `research_project_register` / `research_project_classify` tools. It auto-discovers every project folder (a directory with `research-manifest.json`) under a workbench root, keeps classification metadata (**category / tags / priority / lifecycle status / notes**) in `<workbench-root>/.dsh/workbench.json`, and aggregates each project's *live* status — loop phase, hypothesis & experiment status distribution, artifact count, pending reviews, remote job count, last activity. Group / filter / sort by category, status, priority, or tag, and get a global summary. The single-project Research loop engine (below) stays per-project; this workbench is the *umbrella* layer that makes many projects manageable. Host-side REST API (`webServer` route `/dsh-science/workbench/*`, `engines/workbench-ui.mjs`) + the same client bundle (see [docs/workbench.md](docs/workbench.md)).
 - **Model Tier router (tiered, cross-provider)** — via the companion bundle [`dsh-model-tier`](packages/dsh-model-tier/): within one session, automatically routes auxiliary requests (session titles, compaction summaries) and subagent/background tasks to a **light tier**, keeps the main conversation on the **default tier**, and escalates complex work (deep subagent chains, very long inputs) to a **strong tier** — each tier may point at a **different provider** (e.g. strong GLM-5.3 / default deepseek-v4-flash / light minimax-M3), mirroring Claude Code's Opus/Sonnet/Haiku strategy. Built on DSH's native `agent/request` + `llm/stream` waterfall extension points; a no-op when the tier's provider is unregistered. Installed automatically with dsh-science, but also standalone-installable into any profile (`dsh plugin add dsh-model-tier`).
 - **Independent auto-review engine (Scientific Reviewer, HOST plane)** — the analog of Claude Science's reviewer agent (actor-critic): watches main-session turn boundaries, fires on events (new artifact versions / hypothesis updates / manuscript changes), collects claims and execution records read-only, then runs an independent review call with the **review model explicitly set in the bundle config** — decoupled from the working model, so a small model can execute while a strong reasoning model reviews. Verdicts land in `reviews/Rnn/` + the manifest (supported/refuted/inconclusive can conclude a testing hypothesis); findings flow back to the main agent via a "pending reviews" notice appended to every `research_*` tool result, and fixes trigger automatic re-review. Optional `gate: true` blocks concluding a hypothesis whose latest review is needs-work/refuted (`ERR_REVIEW_GATE`).
-- **11 science skills** — research-loop, science-project-setup, artifact-provenance, scientific-reviewer, literature-connector, parallel-delegation, manuscript-writing, bioinformatics-toolkit, conda-environments, data-inventory, remote-compute.
+- **12 science skills** — research-loop, science-project-setup, artifact-provenance, scientific-reviewer, literature-connector, parallel-delegation, manuscript-writing, bioinformatics-toolkit, conda-environments, data-inventory, remote-compute, biomni-agent.
+- **Biomni 模式（general-purpose biomedical agent mode, parallel to 科学模式)** — a second research ontology replicated from [snap-stanford/Biomni](https://github.com/snap-stanford/Biomni) + its [Science paper](https://www.science.org/doi/10.1126/science.adz4351): **retrieval-augmented planning + code-first execution + reflection**. Four zero-dep engines (`biomni-registry` / `biomni-retriever` / `biomni-plan` / `biomni-reflect`) maintain `.biomni/{registry.json,plan.json,reflect.jsonl}` and expose `biomni_resources_list` / `biomni_registry_add|remove|show` / `biomni_retrieve` / `biomni_plan_init|update|status` / `biomni_reflect|list`. Sells via the **科学模式-parallel `preset-biomni`** agent-preset (persona + engines) and is also mounted in the profile bundle (`cordis.patch.yml`). See [docs/biomni-mode.md](docs/biomni-mode.md).
 
 All in-repo engine plugins are **zero-dependency** (Node built-ins + the system OpenSSH binaries, sharing `engines/core.mjs`) and register plain cordis tools; the companion `dsh-model-tier` router is likewise zero-dependency. Installable either as a profile bundle (`dsh plugin add`) or as an agent preset (`科学模式`).
 
@@ -84,13 +85,13 @@ into the profile layer stack; the `research_*` / `artifact_*` / `remote_*` /
 ### Option B — agent preset (full 科学模式 experience, per-agent)
 
 ```bash
-git clone https://github.com/biociao/dsh-science ~/.dsh/.agent-presets/science
-# or from a local checkout:
-bash scripts/install.sh          # copy   (or: bash scripts/install.sh link)
+bash scripts/install.sh link       # (or: bash scripts/install.sh)  # 科学模式 preset -> ~/.dsh/.agent-presets/science
+bash scripts/install-biomni.sh     # Biomni 模式 preset -> ~/.dsh/.agent-presets/biomni
 ```
 
 Then create a session in the DSH Web GUI and pick the **科学模式** preset — the
 preset carries the research persona + engines with per-agent scoping.
+(Or pick **Biomni 模式** for the general-purpose biomedical agent mode.)
 
 ### Skills
 
@@ -138,21 +139,31 @@ dsh-science/
 │   ├── remote-compute.mjs#   SSH/local transports, host registry + probe, job submit/monitor/pull/cancel
 │   ├── workbench.mjs     #   科研工作台：多项目分类/状态追踪（research_project_* 工具 + .dsh/workbench.json）
 │   ├── remote-hosts-ui.mjs#  Remote Hosts 设置页的宿主 REST API（webServer 路由）
-│   └── workbench-ui.mjs  #   科研工作台设置页的宿主 REST API（webServer 路由 /dsh-science/workbench/*）
+│   ├── workbench-ui.mjs  #   科研工作台设置页的宿主 REST API（webServer 路由 /dsh-science/workbench/*）
+│   ├── biomni-registry.mjs#  Biomni 模式：资源宇宙（工具/数据湖/软件库/Know-How + 运行时注入）
+│   ├── biomni-retriever.mjs# Biomni 模式：检索增强规划（聚焦子集 + 计划骨架）
+│   ├── biomni-plan.mjs   #   Biomni 模式：研究计划与状态清单（plan.json）
+│   └── biomni-reflect.mjs#   Biomni 模式：反思/自批判日志（reflect.jsonl）
 ├── client/               # client 插件（设置页 UI，bundle/profile 级）
 │   └── remote-hosts-ui/  #   src/index.js（远程主机页）+ src/workbench.js（科研工作台页）· lib/client.js 打包产物
 ├── preset/               # agent-preset form (mirrors engines/ via sync-engines.sh)
 │   ├── agent.cordis.yml  #   references ./engines/*.mjs (relative, preset mount)
 │   ├── preset.yml
 │   └── engines/          #   mirror — keep in sync: bash scripts/sync-engines.sh
-├── skills/               # 11 SKILL.md skills
+├── preset-biomni/        # Biomni 模式 agent-preset form (parallel to 科学模式)
+│   ├── agent.cordis.yml  #   Biomni persona + biomni engines (relative ./engines/*.mjs)
+│   ├── preset.yml
+│   └── engines/          #   mirror — keep in sync: bash scripts/sync-engines.sh
+├── skills/               # SKILL.md skills (incl. biomni-agent)
 ├── scripts/
 │   ├── install.sh        # install preset -> ~/.dsh/.agent-presets/science
+│   ├── install-biomni.sh # install Biomni-mode preset -> ~/.dsh/.agent-presets/biomni
 │   ├── install-skills.sh # install skills -> ~/.dsh/skills
-│   ├── sync-engines.sh   # mirror engines/ -> preset/engines/
+│   ├── sync-engines.sh   # mirror engines/ -> preset/engines/ + preset-biomni/engines/
 │   ├── init-project.sh   # project skeleton without a science session
 │   ├── build-client-bundle.mjs # wrap client src -> __ModuleLoader__ bundle (lib/client.js)
 │   ├── smoke-test.mjs    # 188 checks against a temp workspace (node >= 18)
+│   ├── biomni-smoke-test.mjs # 47 checks for the Biomni-mode engines + preset
 │   └── stability-test.mjs# 25 concurrency/atomicity/stress checks (locks, lost-update, soak, migration)
 └── test/verify-bundle.sh # isolated end-to-end bundle install + boot + client scan check
 ```
@@ -161,6 +172,7 @@ dsh-science/
 
 ```bash
 node scripts/smoke-test.mjs       # engine logic + end-to-end loop + error codes + migration
+node scripts/biomni-smoke-test.mjs# Biomni-mode engines (registry/retriever/plan/reflect) + preset checks
 node scripts/stability-test.mjs   # concurrency / atomicity / lock / stress stability checks
 bash test/verify-bundle.sh        # pnpm pack -> isolated profile -> install -> boot check
 ```
@@ -176,7 +188,7 @@ rows join the profile composition. The profile loader resolves a row `name`
 relative to the **profile directory** (not the package), so `./engines/x.mjs`
 fails with `ERR_MODULE_NOT_FOUND`. Referencing `dsh-science/engines/x.mjs`
 (subpath export, `exports` in `package.json`) resolves from the profile's
-`node_modules` and works — verified experimentally on dsh `0.1.0-rc.6`.
+`node_modules` and works — verified experimentally on dsh `0.1.5-rc.1`.
 The agent-preset mount, by contrast, resolves relative names from the preset
 directory, which is why `preset/agent.cordis.yml` can use `./engines/*.mjs`.
 
@@ -198,8 +210,9 @@ tag-triggered npm publish + GitHub Release via Actions): see
 [docs/branching.md](docs/branching.md).
 
 ```bash
-bash scripts/sync-engines.sh    # after editing engines/*.mjs — keeps preset/engines in sync
+bash scripts/sync-engines.sh    # after editing engines/*.mjs — keeps preset/engines + preset-biomni/engines in sync
 node scripts/smoke-test.mjs     # logic + static package checks
+node scripts/biomni-smoke-test.mjs # Biomni-mode engine + preset checks
 node scripts/stability-test.mjs # concurrency / atomicity / lock stability checks
 bash test/verify-bundle.sh      # end-to-end bundle install + boot
 ```

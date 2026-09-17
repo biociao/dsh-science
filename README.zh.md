@@ -7,7 +7,7 @@
 
 **面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 Claude Science 式科研工作台** —— 面向基因组 / 病原体 / 人类健康 / 生物信息项目。
 
-> 一句话介绍：**dsh-science** —— 面向 DSH 的 Claude Science 式科研工作台：ReAct 研究循环引擎（research_* 工具）、带溯源的版本化工件（artifact_* 工具）、SSH 远程计算引擎（remote_* 工具，对应 Claude Science 的 Computer / Remote compute clusters），以及面向基因组/病原体/生物信息的 11 个科研技能。
+> 一句话介绍：**dsh-science** —— 面向 DSH 的 Claude Science 式科研工作台：ReAct 研究循环引擎（research_* 工具）、带溯源的版本化工件（artifact_* 工具）、SSH 远程计算引擎（remote_* 工具，对应 Claude Science 的 Computer / Remote compute clusters）、复刻自 snap-stanford/Biomni 的**通用生物医学 agent 模式（biomni_* 工具）**，以及面向基因组/病原体/生物信息的 12 个科研技能。
 
 - **ReAct 研究循环引擎** —— `research_init` / `research_state` / `research_hypothesis` / `research_experiment` / `research_findings` / `research_phase` / `research_review` / `research_report`，状态持久化在 `research-manifest.json`（提问 → 假设 → 实验 → 观察 → 分析 → 结论 → 下一问题）。
 - **版本化工件与溯源** —— `artifact_save` / `artifact_list` / `artifact_show` / `artifact_diff` / `artifact_verify` / `artifact_deprecate` / `artifact_reproduce`：结果存为 `artifacts/<name>/v<N>/`，附每文件 SHA-256、`artifact.json` 溯源（命令/输入/环境/envFile）与追加式 `provenance.md`。
@@ -16,10 +16,11 @@
 - **科研工作台（多项目分类与状态追踪）** —— 设置面板新增「科研工作台」页，配套 `research_workbench` / `research_project_list` / `research_project_show` / `research_project_register` / `research_project_classify` 工具。它自动扫描工作台根下的项目目录（含 `research-manifest.json`），把分类元数据（**分类 / 标签 / 优先级 / 生命周期状态 / 备注**）持久化到 `<工作台根>/.dsh/workbench.json`，并聚合每个项目的**实时**状态（循环阶段、假设/实验状态分布、工件数、待处理评审、远程作业数、最近活跃）；可按分类/状态/优先级/标签分组、筛选、排序并得到全局汇总。单项目的 ReAct 研究循环引擎（见下）保持按项目隔离，本工作台是让"多项目可管可控"的**伞形**管理层。宿主侧 REST API（`webServer` 路由 `/dsh-science/workbench/*`，`engines/workbench-ui.mjs`）+ 同一客户端 bundle（见 [docs/workbench.md](docs/workbench.md)）。
 - **模型分档路由（Model Tier）** —— 由配套 bundle [`dsh-model-tier`](packages/dsh-model-tier/) 提供：同一会话内自动把辅助请求（会话标题、压缩）与子任务分流到**轻量档**，主对话走默认档、复杂任务按规则升级到**强档**，各档位可指向**不同 provider**（如强档 GLM-5.3 / 主档 deepseek-v4-flash / 轻档 minimax-M3），对应 Claude Code 的 Opus/Sonnet/Haiku 分级策略；基于 DSH 原生 `agent/request` + `llm/stream` waterfall 扩展点，provider 未注册时自动 no-op。安装 dsh-science 自动携带，也可单独装到任意 profile（`dsh plugin add dsh-model-tier`）。
 - **独立自动评审引擎（Scientific Reviewer，HOST 平面）** —— 对应 Claude Science 的 reviewer agent（actor-critic）：观察主会话 turn 边界，事件驱动触发（新工件版本 / 假设更新 / manuscript 变更），引擎只读收集论断与执行记录后，用 **bundle config 显式指定的评审模型**发起独立评审调用（与工作流模型解耦，可做到"执行用小模型、评审用强推理模型"）；结论落盘 `reviews/Rnn/` + manifest，supported/refuted/inconclusive 可终结 testing 假设；评审意见经 `research_*` 工具结果尾部的「待处理评审」提醒回传主代理处置，修复后自动复审；可选 `gate: true` 门禁（最新评审 needs-work/refuted 的假设禁止下结论）。
-- **11 个科研技能** —— research-loop、science-project-setup、artifact-provenance、scientific-reviewer、literature-connector、parallel-delegation、manuscript-writing、bioinformatics-toolkit、conda-environments、data-inventory、remote-compute。
+- **Biomni 模式（通用生物医学 agent，与「科学模式」并列）** —— 复刻 [snap-stanford/Biomni](https://github.com/snap-stanford/Biomni) 及其 [Science 论文](https://www.science.org/doi/10.1126/science.adz4351) 的设计哲学与架构：**检索增强规划 + 代码优先执行 + 反思自批判**。四个零依赖引擎（`biomni-registry` / `biomni-retriever` / `biomni-plan` / `biomni-reflect`）维护 `.biomni/{registry.json,plan.json,reflect.jsonl}`，暴露 `biomni_resources_list` / `biomni_registry_add|remove|show` / `biomni_retrieve` / `biomni_plan_init|update|status` / `biomni_reflect|list`；以「Biomni 模式」preset（`preset-biomni/`，persona + 引擎）交付，也挂载进 profile bundle（`cordis.patch.yml`）。见 [docs/biomni-mode.md](docs/biomni-mode.md)。
+- **12 个科研技能** —— research-loop、science-project-setup、artifact-provenance、scientific-reviewer、literature-connector、parallel-delegation、manuscript-writing、bioinformatics-toolkit、conda-environments、data-inventory、remote-compute、biomni-agent。
 
-五个引擎插件**零第三方依赖**（只用 Node 内置模块 + 系统 OpenSSH，共享 `engines/core.mjs`），注册标准 cordis 工具；配套的 dsh-model-tier 路由同样是零依赖。
-既可作 profile bundle 安装（`dsh plugin add`），也可作 agent preset（「科学模式」）安装。
+引擎插件全部**零第三方依赖**（只用 Node 内置模块 + 系统 OpenSSH，共享 `engines/core.mjs`），注册标准 cordis 工具；配套的 dsh-model-tier 路由同样是零依赖。
+既可作 profile bundle 安装（`dsh plugin add`），也可作 agent preset（「科学模式」/「Biomni 模式」）安装。
 
 ### v0.2.0 新增：模型分档路由（配套 bundle dsh-model-tier）
 
@@ -94,14 +95,16 @@ research-loop / artifact-registry / remote-compute / scientific-reviewer 等引�
 ```bash
 git clone https://github.com/biociao/dsh-science ~/.dsh/.agent-presets/science
 # 或本地安装：
-bash scripts/install.sh          # 复制安装（或：bash scripts/install.sh link）
+bash scripts/install.sh          # 科学模式 preset（或：bash scripts/install.sh link）
+bash scripts/install-biomni.sh   # Biomni 模式 preset -> ~/.dsh/.agent-presets/biomni
 ```
 
 在 DSH Web 新建会话并选择 **科学模式** preset —— preset 自带科研人格 + 引擎，按 agent 作用域隔离。
+（若选 **Biomni 模式**，则是面向宽任务的通用生物医学 agent，检索增强规划 + 代码优先执行 + 反思。）
 
 ### 技能
 
-11 个技能由项目根 `.dsh/skills/` 自动发现（把本仓库 `skills/` 放进你的项目即可），
+12 个技能由项目根 `.dsh/skills/` 自动发现（把本仓库 `skills/` 放进你的项目即可），
 或全机安装：
 
 ```bash
@@ -131,21 +134,31 @@ dsh-science/
 │   ├── remote-compute.mjs#   远程计算：SSH/local 传输、主机注册+探测、作业提交/监控/拉取/取消
 │   ├── workbench.mjs     #   科研工作台：多项目分类/状态追踪（research_project_* 工具 + .dsh/workbench.json）
 │   ├── remote-hosts-ui.mjs#  远程主机设置页的宿主 REST API（webServer 路由）
-│   └── workbench-ui.mjs  #   科研工作台设置页的宿主 REST API（webServer 路由 /dsh-science/workbench/*）
+│   ├── workbench-ui.mjs  #   科研工作台设置页的宿主 REST API（webServer 路由 /dsh-science/workbench/*）
+│   ├── biomni-registry.mjs#  Biomni 模式：资源宇宙（工具/数据湖/软件库/Know-How + 运行时注入）
+│   ├── biomni-retriever.mjs# Biomni 模式：检索增强规划（聚焦子集 + 计划骨架）
+│   ├── biomni-plan.mjs   #   Biomni 模式：研究计划与状态清单（.biomni/plan.json）
+│   └── biomni-reflect.mjs#   Biomni 模式：反思/自批判日志（.biomni/reflect.jsonl）
 ├── client/               # client 插件（设置页 UI，bundle/profile 级）
 │   └── remote-hosts-ui/  #   src/index.js 源码 · lib/client.js 打包产物（build-client-bundle.mjs）
 ├── preset/               # agent-preset 形态（engines 镜像，用 sync-engines.sh 同步）
 │   ├── agent.cordis.yml  #   引用 ./engines/*.mjs（相对路径，preset 挂载）
 │   ├── preset.yml
 │   └── engines/          #   镜像 —— 保持同步：bash scripts/sync-engines.sh
-├── skills/               # 11 个 SKILL.md 技能
+├── preset-biomni/        # Biomni 模式 agent-preset 形态（与「科学模式」并列）
+│   ├── agent.cordis.yml  #   Biomni persona + biomni 引擎（相对 ./engines/*.mjs）
+│   ├── preset.yml
+│   └── engines/          #   镜像 —— 保持同步：bash scripts/sync-engines.sh
+├── skills/               # 12 个 SKILL.md 技能（含 biomni-agent）
 ├── scripts/
-│   ├── install.sh        # 安装 preset -> ~/.dsh/.agent-presets/science
+│   ├── install.sh        # 安装 science preset -> ~/.dsh/.agent-presets/science
+│   ├── install-biomni.sh # 安装 Biomni 模式 preset -> ~/.dsh/.agent-presets/biomni
 │   ├── install-skills.sh # 安装技能 -> ~/.dsh/skills
-│   ├── sync-engines.sh   # 镜像 engines/ -> preset/engines/
+│   ├── sync-engines.sh   # 镜像 engines/ -> preset/engines/ + preset-biomni/engines/
 │   ├── init-project.sh   # 项目骨架（无需科学模式会话）
 │   ├── build-client-bundle.mjs # client 源码 -> __ModuleLoader__ bundle（lib/client.js）
 │   ├── smoke-test.mjs    # 188 项检查（临时工作区，node >= 18）
+│   ├── biomni-smoke-test.mjs # 47 项：Biomni 模式引擎（registry/retriever/plan/reflect）+ preset 静态校验
 │   └── stability-test.mjs# 25 项并发/原子性/压力检查（锁/丢失更新/soak/迁移）
 └── test/verify-bundle.sh # 隔离端到端 bundle 安装 + boot + client 扫描检查
 ```
@@ -153,12 +166,13 @@ dsh-science/
 ## 验证
 
 ```bash
-node scripts/smoke-test.mjs     # 引擎逻辑 + 端到端循环 + 错误码 + 迁移
-node scripts/stability-test.mjs # 并发 / 原子性 / 锁 / 压力稳定性检查
+node scripts/smoke-test.mjs       # 引擎逻辑 + 端到端循环 + 错误码 + 迁移
+node scripts/biomni-smoke-test.mjs# Biomni 模式引擎 + preset 检查
+node scripts/stability-test.mjs   # 并发 / 原子性 / 锁 / 压力稳定性检查
 bash test/verify-bundle.sh      # pnpm pack -> 隔离 profile -> 安装 -> boot 检查
 ```
 
-三项均为发布检查清单内容，可在 CI 安全运行（两个测试脚本只写临时工作区；bundle 测试用隔离的 `$DSH_HOME`）。
+均为发布检查清单内容，可在 CI 安全运行（测试脚本只写临时工作区；bundle 测试用隔离的 `$DSH_HOME`）。
 
 ## FAQ
 
@@ -167,7 +181,7 @@ bash test/verify-bundle.sh      # pnpm pack -> 隔离 profile -> 安装 -> boot 
 profile 加载器把行的 `name` 按 **profile 目录**解析（不是包目录），所以
 `./engines/x.mjs` 会 `ERR_MODULE_NOT_FOUND`；改用 `dsh-science/engines/x.mjs`
 （子路径导出，走 `package.json` 的 `exports`）则从 profile 的 `node_modules`
-解析、可用——已在 dsh `0.1.0-rc.6` 上实验验证。agent-preset 挂载则按 preset
+解析、可用——已在 dsh `0.1.5-rc.1` 上实验验证。agent-preset 挂载则按 preset
 目录解析相对名，因此 `preset/agent.cordis.yml` 可以用 `./engines/*.mjs`。
 
 **bundle 还是 preset，怎么选？**
@@ -186,8 +200,9 @@ profile 加载器把行的 `name` 按 **profile 目录**解析（不是包目录
 见 [docs/branching.md](docs/branching.md)。
 
 ```bash
-bash scripts/sync-engines.sh    # 修改 engines/*.mjs 后运行——保持 preset/engines 同步
+bash scripts/sync-engines.sh    # 修改 engines/*.mjs 后运行——保持 preset/engines + preset-biomni/engines 同步
 node scripts/smoke-test.mjs     # 逻辑 + 静态包校验
+node scripts/biomni-smoke-test.mjs # Biomni 模式引擎 + preset 校验
 node scripts/stability-test.mjs # 并发 / 原子性 / 锁稳定性检查
 bash test/verify-bundle.sh      # 端到端 bundle 安装 + boot
 ```

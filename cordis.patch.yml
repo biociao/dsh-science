@@ -43,6 +43,24 @@
     # 供 client bundle 的「科研工作台」设置页调用。仅 bundle 形态挂载（不进 preset）。
     - id: science-workbench-ui
       name: dsh-science/engines/workbench-ui.mjs
+    # Biomni 模式引擎（资源宇宙 / 检索增强规划 / 计划清单 / 反思自批判）：
+    # 与科研工作台/reviewer 并列的另一种研究本体——面向"宽任务快速上手"的通用生物医学
+    # agent。tools 在 profile 层可见（与 research_*/artifact_*/remote_* 一致）；persona 与
+    # 工作流走 preset「Biomni 模式」（preset-biomni/agent.cordis.yml）。工具：
+    #   biomni_resources_list / biomni_registry_add|remove|show （资源宇宙 .biomni/registry.json）
+    #   biomni_retrieve（检索增强规划，返回聚焦子集 + 计划骨架）
+    #   biomni_plan_init|update|status（研究计划与状态 .biomni/plan.json）
+    #   biomni_reflect|list（反思自批判 .biomni/reflect.jsonl）
+    # 子路径导出（dsh-science/engines/*.mjs）；跨模块相对引用（./core.mjs、./biomni-registry.mjs）
+    # 在包内解析，bundle 形态同样可用。
+    - id: biomni-registry
+      name: dsh-science/engines/biomni-registry.mjs
+    - id: biomni-retriever
+      name: dsh-science/engines/biomni-retriever.mjs
+    - id: biomni-plan
+      name: dsh-science/engines/biomni-plan.mjs
+    - id: biomni-reflect
+      name: dsh-science/engines/biomni-reflect.mjs
     # 独立自动评审引擎（HOST 平面，对齐 Claude Science 的 reviewer agent）：
     # ctx.on("agent/request") 观察主会话 turn 边界（跳过子代理会话），磁盘快照
     # diff 触发（新工件版本/假设更新/manuscript 变更），引擎只读收集执行记录后

@@ -488,7 +488,11 @@ function apply(ctx, config = {}) {
     async execute(args, exec) {
       const root = await core.resolveRoot(args, exec, markers);
       const m = await loadManifest(root);
-      if (!m) throw core.sciErr("ERR_NOT_INIT", `项目未初始化（${root}）。请先调用 research_init 创建研究清单。`);
+      if (!m) {
+        // 未初始化：不抛硬错误，返回可恢复提示，让「会话开始协议」第 1 步顺畅转入 research_init。
+        // 其余写类工具（research_hypothesis/experiment/findings/review 等）仍需硬校验 ERR_NOT_INIT。
+        return `⚠ 项目未初始化（${root}）。请先调用 research_init 创建研究清单。`;
+      }
       let out = await dashboard(root, m);
       if (args.detail) {
         const limit = Number(args.historyLimit ?? 50);

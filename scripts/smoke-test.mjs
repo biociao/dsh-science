@@ -180,6 +180,17 @@ ok("research-loop: name/inject/apply", loopMod.name === "science-research-loop" 
 ok("research-loop: 导出 recordReview（scientific-reviewer 引擎的落盘入口）", typeof loopMod.recordReview === "function");
 ok("artifact-registry: name/inject/apply", artMod.name === "science-artifact-registry" && artMod.inject?.includes("tools") && typeof artMod.apply === "function");
 
+// 回归护栏：research-loop / artifact-registry 注册的每个工具 parameters 必须是
+// object-rooted JSON Schema（type:"object" + properties）。engine.makeTool 会编译扁平参数表，
+// LLM provider 要求顶层 type:"object"，否则报 "Invalid schema for function ... got type: null"。
+{
+  const allTools = { ...loopTools, ...artTools };
+  const bad = Object.entries(allTools)
+    .filter(([, t]) => !(t.parameters?.type === "object" && t.parameters?.properties && typeof t.parameters.properties === "object"))
+    .map(([n]) => n);
+  ok("科学模式引擎工具 parameters 均为 object-rooted schema", bad.length === 0, bad.length ? "bad=" + bad.join(",") : "");
+}
+
 // scientific-reviewer（HOST 平面自动评审引擎）：契约断言；行为级测试见 test/scientific-reviewer.test.mjs
 const revMod = await import(path.join(pkg, "engines", "scientific-reviewer.mjs"));
 ok(
@@ -239,7 +250,8 @@ ok("workbench-ui: name/inject/apply", wbUiMod.name === "science-workbench-ui" &&
 
 // ── 3. 错误码 / 校验（隔离根目录，互不干扰）──────────────────────────
 console.log("\n== 3. 错误码与校验约束 ==");
-await expectThrow(() => loopTools.research_state.execute({ root: sub("t-err-uninit") }, exec), "ERR_NOT_INIT", "未初始化时 research_state");
+const uninitOut = await loopTools.research_state.execute({ root: sub("t-err-uninit") }, exec);
+ok("未初始化时 research_state 温和返回提示（不再抛 ERR_NOT_INIT）", /项目未初始化/.test(uninitOut) && uninitOut.includes("research_init"));
 await expectThrow(() => loopTools.research_hypothesis.execute({ root: sub("t-err-valid"), text: "" }, exec), "ERR_VALIDATION", "research_hypothesis 缺 text");
 await expectThrow(() => loopTools.research_hypothesis.execute({ root: sub("t-err-valid"), text: "x", status: "supported" }, exec), "ERR_VALIDATION", "research_hypothesis 初始状态不得为结论态");
 const tValid = sub("t-err-valid");
