@@ -25,8 +25,9 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
 const srcDir = path.join(root, "client", "remote-hosts-ui", "src");
-// 拼接顺序：先 workbench.js（定义 applyWorkbench），后 index.js（主入口）。
-const sources = ["workbench.js", "index.js"].map((f) => path.join(srcDir, f));
+// 拼接顺序：sidebar.js（侧栏增强 applySidebar + 纯函数 sbTest）/ workbench.js / roadmap.js，
+// 最后 index.js（主入口，引用三者的 apply* 与 sbTest）。
+const sources = ["sidebar.js", "workbench.js", "roadmap.js", "index.js"].map((f) => path.join(srcDir, f));
 const outPath = path.join(root, "client", "remote-hosts-ui", "lib", "client.js");
 
 const BUNDLE_ID = "dsh-science";

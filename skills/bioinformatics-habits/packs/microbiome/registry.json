@@ -1,0 +1,189 @@
+{
+  "schema_version": "0.1.0",
+  "pack": "microbiome",
+  "display_name": "微生物组",
+  "maturity": "execution",
+  "scope": "16S/18S/ITS/COI 扩增子与 shotgun 宏基因组的分类、多样性与功能分析",
+  "intake_fields": [
+    {
+      "name": "marker",
+      "values": "16S V3-V4 / V4 / ITS / 18S / COI",
+      "blocking": true,
+      "why": "决定引物、分类库与 denoising 参数"
+    },
+    {
+      "name": "primers",
+      "values": "序列或试剂盒",
+      "blocking": true,
+      "why": "引物不匹配会系统性丢失类群"
+    },
+    {
+      "name": "controls",
+      "values": "阴性/阳性对照有无",
+      "blocking": true,
+      "why": "没有对照无法评估污染"
+    },
+    {
+      "name": "absolute_quantification",
+      "values": "有 / 无（qPCR/内标）",
+      "blocking": false,
+      "why": "否则只能做相对丰度"
+    }
+  ],
+  "pipelines": {
+    "amplicon": {
+      "display_name": "扩增子",
+      "route_when": [
+        "16s",
+        "amplicon",
+        "its",
+        "qiime2",
+        "dada2"
+      ],
+      "preferred_workflow": "QIIME2 / DADA2",
+      "tools": [
+        "qiime2",
+        "dada2",
+        "cutadapt"
+      ],
+      "local_runner": "run_amplicon_microbiome.py",
+      "essential_questions": [
+        "引物与 marker？",
+        "是否有阴性对照？",
+        "分类库版本？"
+      ],
+      "local_outputs": [
+        "tables/asv_table.tsv",
+        "tables/taxonomy.tsv",
+        "alpha/beta diversity"
+      ]
+    },
+    "shotgun_taxonomy": {
+      "display_name": "宏基因组分类",
+      "route_when": [
+        "shotgun",
+        "metagenomics",
+        "kraken2",
+        "bracken"
+      ],
+      "preferred_workflow": "KneadData + Kraken2 + Bracken",
+      "tools": [
+        "kneaddata",
+        "kraken2",
+        "bracken"
+      ],
+      "local_runner": "run_shotgun_metagenomics.py",
+      "essential_questions": [
+        "宿主去除参考？",
+        "Kraken2 库版本与体积？"
+      ],
+      "local_outputs": [
+        "tables/bracken_relative_abundance_matrix.tsv"
+      ]
+    },
+    "functional": {
+      "display_name": "功能谱",
+      "route_when": [
+        "humann",
+        "functional",
+        "pathway"
+      ],
+      "preferred_workflow": "HUMAnN / MetaPhlAn",
+      "tools": [
+        "humann",
+        "metaphlan"
+      ],
+      "local_runner": null,
+      "essential_questions": [
+        "是否需要通路级结论？",
+        "数据库版本？"
+      ],
+      "local_outputs": [
+        "tables/humann_pathabundance_matrix.tsv"
+      ]
+    }
+  },
+  "resources": {
+    "taxonomy_classifier": {
+      "kind": "database",
+      "root_env": "MB_TAXONOMY",
+      "expected_files": [
+        "classifier.qza 或 silva.fa"
+      ],
+      "required_for": [
+        "amplicon"
+      ],
+      "notes": "版本写入 manifest"
+    },
+    "kraken2_db": {
+      "kind": "database",
+      "root_env": "MB_KRAKEN2",
+      "expected_files": [
+        "hash.k2d",
+        "opts.k2d",
+        "taxo.k2d"
+      ],
+      "required_for": [
+        "shotgun_taxonomy"
+      ],
+      "notes": "标准库体积大，需明确批准下载"
+    },
+    "host_reference": {
+      "kind": "reference",
+      "root_env": "MB_HOST",
+      "expected_files": [
+        "host.fa"
+      ],
+      "required_for": [
+        "host_depletion"
+      ],
+      "notes": "宿主去除用"
+    }
+  },
+  "qc_metrics": [
+    {
+      "name": "read_depth",
+      "rule": "扩增子 ≥10k/样本；宏基因组按目标检测限",
+      "source": "seqkit/multiqc",
+      "blocking": true
+    },
+    {
+      "name": "rarefaction",
+      "rule": "达到平台期才做多样性比较",
+      "source": "QIIME2",
+      "blocking": true
+    },
+    {
+      "name": "host_contamination",
+      "rule": "宏基因组宿主 reads 比例达标",
+      "source": "kneaddata",
+      "blocking": true
+    },
+    {
+      "name": "negative_control",
+      "rule": "对照中不得出现高丰度 ASV/物种",
+      "source": "对照样本",
+      "blocking": true
+    },
+    {
+      "name": "asv_retention",
+      "rule": "denoising 后保留比例合理",
+      "source": "DADA2/QIIME2",
+      "blocking": false
+    },
+    {
+      "name": "diversity_saturation",
+      "rule": "alpha 多样性随深度饱和",
+      "source": "rarefaction",
+      "blocking": false
+    }
+  ],
+  "compliance": [
+    "人类微生物组数据可能涉及隐私",
+    "数据库许可（SILVA/GTDB/Kraken2）"
+  ],
+  "handoff": [
+    "统计建模（compositional）",
+    "multi-omics（宿主-微生物联合）"
+  ]
+}

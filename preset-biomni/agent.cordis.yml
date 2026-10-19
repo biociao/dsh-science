@@ -135,7 +135,10 @@
 
 # ── goals ───────────────────────────────────────────────────────────────────
 
-# command-goal 由宿主组合（@deepseek-ai/dsh-base）提供，本 preset 不重复声明。
+# DSH 0.2 的 Web 宿主禁用全局 /goal；各 preset 在自己的作用域注册。
+- id: command-goal
+  name: '@deepseek-ai/dsh-command-goal'
+
 - id: tool-goal
   name: '@deepseek-ai/dsh-tool-goal'
 
@@ -232,8 +235,8 @@
         backgroundMode: one-shot
         maxDepth: provider-managed
 
-    - id: workflow-worker-thread
-      name: '@deepseek-ai/dsh-workflow-worker-thread'
+    - id: workflow-ptc
+      name: '@deepseek-ai/dsh-workflow-ptc'
       config:
         provider: spawn
 

@@ -1,120 +1,79 @@
 #!/usr/bin/env bash
-# dsh-model-tier 端到端冒烟 —— 用隔离的 DSH_HOME（仓库内 test/.e2e-home/）起一个
-# headless 会话，真实挂载模型分档路由引擎（独立 bundle 形态），并把"轻档"指向本地
-# mock LLM 服务器：
-#   若辅助请求（会话标题，purpose=session-title）真的被路由到轻档，mock 服务器就会
-#   收到 model=mock-title 的请求 —— 这是决定性证据（不依赖日志可见性）。
-# 同时验证：主会话请求保持默认档（deepseek-official，不被误改）。
-#
-# 前提：本机 ~/.dsh 下已有 DEEPSEEK_API_KEY 等凭据（会复制进隔离 home，再追加
-# E2E_LIGHT_API_KEY=test 供 mock provider 使用）。
-# 用法：bash scripts/test-model-tier.sh
+# dsh-model-tier 独立 bundle 集成验证（目标 DSH 0.2.0-rc.2）。
+# 在临时 DSH_HOME 的 web profile 安装本地包，复用仓库运行时探针注册内存 mock
+# adapter，验证模型目录、prepareCall、imageRequestPricing、主请求/标题分档和
+# HTTP 配置接口。无需用户凭据，不调用外部模型 API，也不启动 mock HTTP 服务器。
+# 依赖：Node 22、dsh；首次安装 profile 依赖需要访问包注册表。
+# 用法：bash packages/dsh-model-tier/scripts/test-model-tier.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-HOME_DIR="$ROOT/test/.e2e-home"
-PROFILE="$HOME_DIR/profiles/router-test"
-PORT_FILE="$(mktemp /tmp/mock-llm-port.XXXXXX)"
-LOG_FILE="$(mktemp /tmp/mock-llm-requests.XXXXXX.jsonl)"
-SERVER_PID=""
+REPO_ROOT="$(cd "$ROOT/../.." && pwd)"
+TMP="$(mktemp -d /tmp/dsh-model-tier-verify-XXXXXX)"
+VERIFY_HOME="$TMP/home"
+VERIFY_PROFILE="$VERIFY_HOME/profiles/web"
+trap 'if [ "${VERIFY_KEEP:-0}" != 1 ]; then rm -rf "$TMP"; else echo "保留验证目录: $TMP"; fi' EXIT
+export DSH_HOME="$VERIFY_HOME"
 
-cleanup() {
-  [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null || true
-  rm -f "$PORT_FILE" "$LOG_FILE"
-  rm -rf "$HOME_DIR"
+[ -f "$ROOT/package.json" ] && [ -f "$ROOT/cordis.patch.yml" ] || {
+  echo "缺少 dsh-model-tier bundle 文件" >&2; exit 1;
 }
-trap cleanup EXIT
+[ -f "$REPO_ROOT/test/runtime-probe.mjs" ] && [ -f "$REPO_ROOT/test/verify-runtime.mjs" ] || {
+  echo "缺少仓库运行时探针，请从 dsh-science checkout 运行" >&2; exit 1;
+}
 
-echo "== 启动 mock LLM 服务器 =="
-node "$ROOT/scripts/mock-llm-server.mjs" "$PORT_FILE" "$LOG_FILE" &
-SERVER_PID=$!
-for _ in $(seq 1 50); do
-  [ -s "$PORT_FILE" ] && break
-  sleep 0.1
-done
-PORT="$(cat "$PORT_FILE" 2>/dev/null || echo "")"
-[ -n "$PORT" ] || { echo "错误：mock 服务器未就绪" >&2; exit 1; }
-echo "mock 服务器端口：$PORT"
-
-echo "== 准备隔离 DSH_HOME：$HOME_DIR =="
-rm -rf "$HOME_DIR"
-mkdir -p "$PROFILE/node_modules"
-
-# 复制真实凭据与 provider 配置，并追加 mock provider（e2e-light）。
-# 注意：必须把 e2e-light 合并进已有的 llm-pi-ai.providers 块（追加顶层键会触发
-# settings-file 的 DUPLICATE_KEY 校验）。
-cp "$HOME/.dsh/settings.yaml" "$HOME_DIR/settings.yaml"
-cp "$HOME/.dsh/.credentials.yaml" "$HOME_DIR/.credentials.yaml"
-printf '\nE2E_LIGHT_API_KEY: test\n' >> "$HOME_DIR/.credentials.yaml"
-node -e '
-const fs = require("fs");
-const p = process.argv[1];
-const port = process.argv[2];
-let s = fs.readFileSync(p, "utf8");
-const anchor = "llm-pi-ai:\n  providers:\n";
-const i = s.indexOf(anchor);
-if (i < 0) { console.error("错误：settings.yaml 缺少 llm-pi-ai.providers 锚点"); process.exit(1); }
-const ins = "    e2e-light:\n" +
-  "      apiKeyEnv: E2E_LIGHT_API_KEY\n" +
-  "      api: openai-completions\n" +
-  "      baseURL: http://127.0.0.1:" + port + "/v1\n" +
-  "      models:\n" +
-  "        - id: mock-title\n";
-s = s.slice(0, i + anchor.length) + ins + s.slice(i + anchor.length);
-// 路由按会话 opt-in：headless 会话的模型来自 agent-default-model ——
-// 把它指向虚拟 provider（智能分档 / bundle 默认方案），整个会话即被路由。
-// 先剥掉已有的顶层 agent-default-model 块（避免 DUPLICATE_KEY），再追加。
-s = s.replace(/^agent-default-model:\n(?:[ \t].*\n)*/m, "");
-s += "\nagent-default-model:\n  provider: model-tier\n  model: bundle\n";
-fs.writeFileSync(p, s);
-' "$HOME_DIR/settings.yaml" "$PORT"
-
-ln -s "$ROOT" "$PROFILE/node_modules/dsh-model-tier"
-
-cat > "$PROFILE/package.json" <<EOF
+echo "== 1/3 准备隔离 web profile =="
+mkdir -p "$VERIFY_PROFILE"
+cat > "$VERIFY_PROFILE/package.json" <<'EOF'
 {
-  "name": "dsh-profile-router-test",
+  "name": "dsh-profile-web",
   "private": true,
-  "dependencies": { "dsh-model-tier": "link:$ROOT" },
-  "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-headless", "dsh-model-tier"] } }
+  "dsh": {
+    "profile": {
+      "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"]
+    }
+  }
 }
 EOF
+cat > "$VERIFY_PROFILE/pnpm-workspace.yaml" <<'EOF'
+packages:
+  - .
 
-cat > "$PROFILE/cordis.patch.yml" <<'EOF'
-# headless 测试 profile：覆盖路由引擎配置，轻档指向本地 mock provider
-# （e2e-light/mock-title），强档/主档用真实 provider。
-- id: model-tier
+nodeLinker: hoisted
+autoInstallPeers: false
+EOF
+cat > "$VERIFY_HOME/cordis.patch.yml" <<'EOF'
+- id: webserver
   config:
-    tiers:
-      strong: { provider: zai-coding-cn, model: glm-5.3 }
-      default: { provider: deepseek-official, model: deepseek-v4-flash }
-      light: { provider: e2e-light, model: mock-title }
-    routing:
-      auxiliary: [session-title, compaction]
-      subagents: light
-      subagentDepthStrong: 3
+    host: 127.0.0.1
+    port: 0
 EOF
 
-echo "== 启动 headless 会话（主对话走 deepseek-official，标题应走 mock）=="
-OUT="$(DSH_HOME="$HOME_DIR" dsh --profile router-test "请只回复：模型路由冒烟测试通过" 2>&1 || true)"
-
-echo "---- 会话答复 ----"
-echo "$OUT" | head -3
-
-echo "---- mock 服务器收到的请求（决定性证据）----"
-if [ -s "$LOG_FILE" ]; then
-  cat "$LOG_FILE"
-  ROUTED="$(grep -c '"model":"mock-title"' "$LOG_FILE" || true)"
-  echo "→ 路由到轻档的请求数：$ROUTED"
-else
-  echo "（mock 未收到任何请求 —— 路由未生效）"
-  ROUTED=0
+echo "== 2/3 安装独立 dsh-model-tier bundle =="
+if ! ADD_OUT="$(dsh plugin --profile web add "$ROOT" 2>&1)"; then
+  echo "$ADD_OUT"; exit 1
 fi
+echo "$ADD_OUT" | tail -6
+node --input-type=module - "$VERIFY_PROFILE/package.json" <<'JS'
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+const pkg = JSON.parse(await readFile(process.argv[2], 'utf8'));
+assert(pkg.dsh.profile.bundles.includes('dsh-model-tier'), 'dsh-model-tier 未入 bundle 层栈');
+assert(!pkg.dsh.profile.bundles.includes('dsh-science'), '此检查只安装独立模型分档 bundle');
+console.log('  ✔ 独立 dsh-model-tier bundle 已注册');
+JS
 
-if [ "$ROUTED" -ge 1 ]; then
-  echo "✔ 通过：辅助请求被路由到轻档（e2e-light/mock-title）"
-else
-  echo "✗ 失败：未捕获到路由证据" >&2
-  exit 1
-fi
-echo "✔ 完成"
+echo "== 3/3 真实 DSH 运行时接口与本地 mock 路由 =="
+cp "$REPO_ROOT/test/runtime-probe.mjs" "$TMP/runtime-probe.mjs"
+cat >> "$VERIFY_HOME/cordis.patch.yml" <<EOF
+- insert:
+    - id: model-tier-compatibility-probe
+      name: "$TMP/runtime-probe.mjs"
+      config:
+        workspace: "$TMP/workspace"
+        resultFile: "$TMP/runtime-result.json"
+        presetIds: []
+        httpEndpoints: ['/dsh-model-tier/config']
+EOF
+node "$REPO_ROOT/test/verify-runtime.mjs" "$TMP/runtime-result.json"
+echo "✔ 独立 dsh-model-tier bundle 集成验证通过。"

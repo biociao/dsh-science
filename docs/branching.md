@@ -8,7 +8,7 @@
 | 分支 | 角色 | 规则 |
 |------|------|------|
 | `main` | **只放可发布状态** | 禁止直接 push；只接受 `dev → main` 的发布 PR（或 `hotfix/* → main`）；每次合入打 `vX.Y.Z` tag。main 上的每个 commit 都对应一个可安装版本 |
-| `dev` | **集成测试分支** | 禁止直接 push；`feat/*` 通过 PR 合入。允许不稳定，但不发布；PR 进 dev 跑 smoke + stability |
+| `dev` | **集成测试分支** | 禁止直接 push；`feat/*` 通过 PR 合入。不发布；PR 进 dev 跑逻辑与真实 DSH 集成门禁 |
 | `feat/<name>` | **新功能 / 修复分支** | 从 `dev` 切出，PR 回 `dev`；命名如 `feat/artifact-quota`、`fix/lock-timeout` |
 | `hotfix/<name>`（可选） | **紧急修复** | 从 `main` 切出，PR 回 `main` 与 `dev`（双合并）；走全量验证 |
 
@@ -24,10 +24,17 @@ feat/b ──┼──▶ PR ──▶ dev ──▶ PR(发布) ──▶ main �
 
 | 阶段 | 跑什么 | 在哪跑 |
 |------|--------|--------|
-| 提交 / feat 分支 | 本地 `node scripts/smoke-test.mjs`（快） | 开发者本机 |
-| PR → `dev` | smoke(161) + stability(25)，node 18/20 | CI（`ci.yml`） |
-| PR → `main` / push main | 上述两项 + **bundle-verify**（真实 dsh 隔离安装 + boot） | CI（`ci.yml`） |
-| tag `v*`（发布） | 全量：两项测试 + bundle-verify + tag/版本一致性 | CI（`release.yml`） |
+| 提交 / feat 分支 | 本地 `npm test`；修改 preset 后先生成补丁 | 开发者本机 |
+| PR → `dev` / push dev | `npm test` + stability（Node 18/20）+ bundle/preset/router 集成验证（Node 22） | CI（`ci.yml`） |
+| PR → `main` / push main | 上述检查 + **bundle-verify**（真实 DSH 隔离安装、preset schema、运行时检查） | CI（`ci.yml`，DSH 使用 Node 22） |
+| tag `v*`（发布） | 全量检查 + bundle-verify + tag/版本一致性 | CI（`release.yml`） |
+
+真实 DSH 门禁固定使用 **`@deepseek-ai/dsh@0.2.0-rc.2`**。
+`npm test` 包含研究/Biomni 引擎、模型分档、科学评审、preset 生成一致性与 schema 检查；
+本地缺少 DSH 时 schema 检查可以跳过，因此不能仅凭 `npm test` 宣称真实 DSH 兼容。
+`bundle-verify` 在隔离 `$DSH_HOME` 中安装发布包，检查两个 preset 的真实挂载、工具调用、
+workflow 与 HTTP 路由，并独立检查 preset 安装/重装及模型路由 bundle。升级 DSH 固定版本时，应先按
+[兼容性迁移说明](dsh-0.2-compatibility.md) 核验接口，再更新 CI 与发布工作流。
 
 ## 三、发布流程（tag 触发，全自动）
 
@@ -40,7 +47,7 @@ feat/b ──┼──▶ PR ──▶ dev ──▶ PR(发布) ──▶ main �
    ```
 
 3. `release.yml` 自动执行：
-   - 测试门禁：smoke + stability（node 18/20）+ bundle-verify
+   - 测试门禁：`npm test` + stability（Node 18/20）+ bundle-verify（Node 22）
    - 校验 tag 与 `package.json` 版本一致（不一致拒绝发布）
    - `pnpm pack` 产出 `dsh-science-<ver>.tgz` + `SHA256SUMS`
    - `npm publish`（使用仓库 secret `NPM_TOKEN`）

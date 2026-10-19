@@ -214,8 +214,8 @@ REST API，供 Web 设置页「科研工作台」调用）：
 - **Web 面板**：设置页「科研工作台」（`client/remote-hosts-ui/src/workbench.js`，与远程主机页
   共用一个 client bundle——DSH 按包名只解析一个 `exports["./client"]`，故 build-client-bundle.mjs
   改为按序拼接多个 source 文件）。宿主 REST 路由 `/dsh-science/workbench/*`（overview/list/
-  classify/register/remove，同源防护）。
+  classify/register/remove，来源校验见 `engines/http-guard.mjs`）。
 - **挂载**：`research-workbench` 进 preset（agent 工具）与 bundle；`workbench-ui` 仅 bundle
   （webServer 宿主）；`sync-engines.sh` 镜像清单加 `workbench.mjs`。
 - **测试**：smoke-test 增加「11. 科研工作台」19 项（发现/汇总/分类/列表/详情/校验/路由/
-  同源）；`build-client-bundle.mjs --check` 一致性校验。
+  来源校验：同源放行、跨站 403、桌面端转发放行）；`build-client-bundle.mjs --check` 一致性校验。

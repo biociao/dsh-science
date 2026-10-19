@@ -1,0 +1,206 @@
+{
+  "schema_version": "0.1.0",
+  "pack": "metabolomics",
+  "display_name": "代谢组",
+  "maturity": "planning",
+  "scope": "LC-MS/GC-MS/NMR 的非靶向与靶向代谢组、注释与统计",
+  "intake_fields": [
+    {
+      "name": "platform",
+      "values": "LC-MS / GC-MS / NMR / 其他",
+      "blocking": true,
+      "why": "决定特征提取、对齐与注释策略"
+    },
+    {
+      "name": "mode",
+      "values": "正离子 / 负离子 / 双极性",
+      "blocking": true,
+      "why": "加合物与离子模式影响注释"
+    },
+    {
+      "name": "qc_design",
+      "values": "blank / pooled QC / 内标",
+      "blocking": true,
+      "why": "没有 QC 无法评估漂移与污染"
+    },
+    {
+      "name": "targeted_or_untargeted",
+      "values": "targeted / untargeted",
+      "blocking": true,
+      "why": "决定是否需要标准曲线与保留时间"
+    }
+  ],
+  "pipelines": {
+    "untargeted": {
+      "display_name": "非靶向特征提取",
+      "route_when": [
+        "untargeted",
+        "mzmine",
+        "xcms"
+      ],
+      "preferred_workflow": "MZmine3 / XCMS",
+      "tools": [
+        "mzmine",
+        "xcms",
+        "ms-dial"
+      ],
+      "local_runner": null,
+      "essential_questions": [
+        "平台与离子模式？",
+        "对齐与峰检测参数？"
+      ],
+      "local_outputs": [
+        "feature_table.tsv"
+      ]
+    },
+    "annotation": {
+      "display_name": "注释",
+      "route_when": [
+        "annotation",
+        "gnps",
+        "sirius"
+      ],
+      "preferred_workflow": "GNPS / SIRIUS+CSI:FingerID",
+      "tools": [
+        "gnps",
+        "sirius"
+      ],
+      "local_runner": null,
+      "essential_questions": [
+        "注释置信度如何报告（MSI 级别）？",
+        "是否有标准品验证？"
+      ],
+      "local_outputs": [
+        "annotated_table.tsv"
+      ]
+    },
+    "targeted": {
+      "display_name": "靶向定量",
+      "route_when": [
+        "targeted",
+        "skyline",
+        "standard_curve"
+      ],
+      "preferred_workflow": "Skyline / 仪器软件",
+      "tools": [
+        "skyline"
+      ],
+      "local_runner": null,
+      "essential_questions": [
+        "标准曲线与内标？",
+        "定量下限？"
+      ],
+      "local_outputs": [
+        "concentrations.tsv"
+      ]
+    },
+    "statistics": {
+      "display_name": "统计与通路",
+      "route_when": [
+        "statistics",
+        "fold_change",
+        "pathway"
+      ],
+      "preferred_workflow": "MetaboAnalyst / 自建",
+      "tools": [
+        "rscript",
+        "metaboanalyst"
+      ],
+      "local_runner": null,
+      "essential_questions": [
+        "归一化方法？",
+        "多重检验校正？"
+      ],
+      "local_outputs": [
+        "stats/*.tsv"
+      ]
+    }
+  },
+  "resources": {
+    "spectral_library": {
+      "kind": "database",
+      "root_env": "METAB_LIBRARY",
+      "expected_files": [
+        "library.mgf/tsv"
+      ],
+      "required_for": [
+        "annotation"
+      ],
+      "notes": "库版本与碰撞能量需记录"
+    },
+    "adduct_rules": {
+      "kind": "annotation",
+      "root_env": "METAB_ADDUCTS",
+      "expected_files": [
+        "adducts.tsv"
+      ],
+      "required_for": [
+        "annotation"
+      ],
+      "notes": "离子模式对应加合物表"
+    },
+    "internal_standards": {
+      "kind": "library",
+      "root_env": "METAB_IS",
+      "expected_files": [
+        "standards.tsv"
+      ],
+      "required_for": [
+        "quantification"
+      ],
+      "notes": "回收率与保留时间参考"
+    }
+  },
+  "qc_metrics": [
+    {
+      "name": "mass_error",
+      "rule": "<5 ppm（视平台与仪器）",
+      "source": "仪器/注释",
+      "blocking": true
+    },
+    {
+      "name": "rt_drift",
+      "rule": "QC 样本保留时间漂移在阈值内",
+      "source": "QC 样本",
+      "blocking": true
+    },
+    {
+      "name": "pooled_qc_rsd",
+      "rule": "多数特征 RSD <20-30%",
+      "source": "pooled QC",
+      "blocking": true
+    },
+    {
+      "name": "blank_subtraction",
+      "rule": "空白中高响应特征需剔除/标记",
+      "source": "blank",
+      "blocking": true
+    },
+    {
+      "name": "feature_count",
+      "rule": "与平台/方法匹配，异常低需排查",
+      "source": "特征表",
+      "blocking": false
+    },
+    {
+      "name": "is_recovery",
+      "rule": "内标回收率在可接受范围",
+      "source": "内标",
+      "blocking": false
+    },
+    {
+      "name": "annotation_level",
+      "rule": "每个注释标注 MSI 置信级别",
+      "source": "注释流程",
+      "blocking": true
+    }
+  ],
+  "compliance": [
+    "临床代谢标志物 out of scope",
+    "样本来源伦理"
+  ],
+  "handoff": [
+    "multi-omics（代谢-转录/微生物联合）",
+    "通路解释"
+  ]
+}

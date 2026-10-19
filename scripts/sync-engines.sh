@@ -10,7 +10,7 @@ SRC="$ROOT/engines"
 
 # ── science preset ──
 SCI_DST="$ROOT/preset/engines"
-SCI_FILES=(core.mjs research-loop.mjs artifact-registry.mjs remote-compute.mjs workbench.mjs)
+SCI_FILES=(core.mjs research-loop.mjs artifact-registry.mjs remote-compute.mjs workbench.mjs roadmap.mjs)
 
 # ── biomni preset ──
 BIO_DST="$ROOT/preset-biomni/engines"

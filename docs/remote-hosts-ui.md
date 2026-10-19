@@ -33,8 +33,10 @@
   `/dsh-science/remote-hosts`，提供 `config / list / add-host / update-host /
   remove-host / probe-host / project-info / revoke` 八个 JSON 方法。与
   `remote-compute` 引擎读写**同一套数据文件**，UI 与工具改动互相可见。
-  探测复用引擎同一只读脚本与解析格式；路由做同源校验（Origin ↔ Host）与
-  POST-only 限制，防止跨站调用本地服务。
+  探测复用引擎同一只读脚本与解析格式；路由做来源校验（`engines/http-guard.mjs`：
+  Origin 与 Host 必须同 authority；桌面端 `dsh-app://app` 由主进程转发到本机 Host 时
+  会删除 Origin，这种「无 Origin + 回环 Host」请求放行）与 POST-only 限制，防止跨站
+  调用本地服务。
 - **客户端**（`client/remote-hosts-ui/`）：`src/index.js` 是源码（React 无 JSX +
   浏览器 fetch），`lib/client.js` 是 **`window.__ModuleLoader__.load({id, factory})`
   格式的预构建 bundle**，由 `scripts/build-client-bundle.mjs` 生成（factory 内注入
@@ -42,6 +44,10 @@
   使 client-modules 在 profile 启动时加载该 bundle 并注册到设置面板。
 - 安全语义：设置页是**用户手动操作**，不弹审批（用户本人即授权者）；Agent 通过
   `remote_*` 工具操作仍走原有审批（首次授权/作业审批），两套互不冲突。
+- 交叉引用：本页只讲设置页。同一个 client bundle 还拼接了科研工作台
+  （`src/workbench.js`）、技术路线图（`src/roadmap.js`）与**侧栏增强**
+  （`src/sidebar.js`：Codex 式三段侧栏（置顶 / 工作区 / 最近）/ 工作区「…」菜单与右键菜单 / 悬停状态，
+  见 [docs/sidebar.md](sidebar.md)）。
 
 ## 安装 / 更新
 
@@ -68,7 +74,8 @@ dsh plugin --profile web add "github:biociao/dsh-science"   # 或已有 symlink 
 
 - `node scripts/smoke-test.mjs` 第 9 节：静态检查（`dsh.client` 声明、
   `exports["./client"]`、bundle 与源码一致性）+ 宿主路由单测（webServer stub 捕获
-  路由、模拟 HTTP 请求验证 405/403/404 与增删改查、白名单/作业读取）。
+  路由、模拟 HTTP 请求验证 405/来源校验（同源放行、跨站 403、桌面端转发放行）/404
+  与增删改查、白名单/作业读取）。
 - `bash test/verify-bundle.sh`：发布物检查新增 client bundle 与 `science-remote-hosts-ui`
   组合行、boot 无加载错误。
 
@@ -77,6 +84,9 @@ dsh plugin --profile web add "github:biociao/dsh-science"   # 或已有 symlink 
 - **设置里没有"远程主机"页**：确认重启了 web 进程（client-modules 启动时扫描）；
   确认 `node_modules/dsh-science/package.json` 的 `dsh.client` 与
   `exports["./client"]` 存在（bundle 重新安装后生效）。
-- **页面报 fetch 403**：请求缺失/不匹配 Origin（浏览器同源访问不会触发）；
-  用 curl 直接调试会被同源校验拒绝，属预期。
+- **页面报 fetch 403**：只有两种情况会触发 —— ① Origin 与 Host 不是同一
+  authority（跨站页面调用）；② 缺少 Origin 且 Host 不是回环地址。浏览器同源访问与
+  桌面端（`dsh-app://app` 经主进程转发）都不会触发；本机
+  `curl http://127.0.0.1:<port>/dsh-science/remote-hosts/...` 也能直接调试。
+  远程主机 / 科研工作台 / 技术路线图 / 智能分档四个面板共用同一套判定。
 - **探测失败**：检查密钥/ssh-agent、`ssh <alias>` 连通性；UI 会展示 stderr 摘要。

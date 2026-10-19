@@ -15,6 +15,7 @@ import { promises as fsp, existsSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { spawn } from "node:child_process";
+import { isTrustedLocalRequest } from "./http-guard.mjs";
 
 export const name = "science-remote-hosts-ui";
 export const inject = ["webServer"];
@@ -135,19 +136,9 @@ function send(res, status, obj) {
   res.end(body);
 }
 
-// 同源校验：只接受浏览器同源请求（防止跨站调用本地服务）
-function sameOrigin(req) {
-  const origin = req.headers.origin;
-  if (!origin) return false; // 非浏览器（curl 等）拒绝
-  const host = req.headers.host;
-  if (!host) return false;
-  try {
-    const u = new URL(origin);
-    return u.host === host;
-  } catch (e) {
-    return false;
-  }
-}
+// 来源校验见 ./http-guard.mjs：同源浏览器请求照旧校验 Origin↔Host；桌面端
+// （页面 origin dsh-app://app）由主进程转发到本机 Host 时会删除 Origin，
+// 这种「无 Origin + 回环 Host」的请求必须放行，否则设置页整体 403。
 
 const fail = (msg) => ({ ok: false, error: String(msg && msg.message || msg).slice(0, 400) });
 const projFile = (root, name) => `${root}/.dsh/remotes/${name}.json`;
@@ -270,7 +261,7 @@ function apply(ctx, config = {}) {
     path: "/dsh-science/remote-hosts",
     async handler(req, res) {
       if (req.method !== "POST") return send(res, 405, { ok: false, error: "仅支持 POST" });
-      if (!sameOrigin(req)) return send(res, 403, { ok: false, error: "非浏览器同源请求被拒绝（缺少/不匹配 Origin）" });
+      if (!isTrustedLocalRequest(req)) return send(res, 403, { ok: false, error: "请求来源校验失败（Origin 与 Host 不一致，或 Host 不是本机回环地址）" });
       const name = (req.url || "").replace(/^\/dsh-science\/remote-hosts\/?/, "").split("/")[0];
       if (!name || !METHODS.includes(name)) return send(res, 404, { ok: false, error: `未知方法 ${name}` });
       try {

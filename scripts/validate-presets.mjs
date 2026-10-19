@@ -15,7 +15,8 @@
  *
  * WHAT
  *   1. 解析两个 preset 的 agent.cordis.yml（含 dsh 自定义 `!!js` tag、group 嵌套行）；
- *   2. 对每个 `@deepseek-ai/*` 行取该包的 Config / resolveConfig schema 跑一遍 config；
+ *   2. 对每个 `@deepseek-ai/*` 行（含 config.plugins）取命名或默认导出的 Config / resolveConfig 校验；
+ *      包缺失算失败，无 schema 的插件才跳过；
  *   3. 校验各 package.json 的 `dsh.client.inject` 条目在 dsh 发行版里存在
  *      （0.1.5 起 @deepseek-ai/dsh-client-runtime 已被移除，写进去只会被静默跳过）。
  *
@@ -98,6 +99,7 @@ function collectRows(doc) {
       if (row === null || typeof row !== "object") continue;
       out.push(row);
       if (Array.isArray(row.config)) walk(row.config);
+      if (Array.isArray(row.config?.plugins)) walk(row.config.plugins);
     }
   };
   for (const entry of doc) {
@@ -121,8 +123,9 @@ async function validateRowConfig(name, config) {
     return { status: "fail", why: `加载失败：${err.message.split("\n")[0]}` };
   }
   // 多数插件导出 schemastery `Config`；plan-mode 走 resolveConfig()。
-  const validate = typeof mod.Config === "function"
-    ? (cfg) => mod.Config(cfg)
+  const schema = mod.Config ?? mod.default?.Config;
+  const validate = typeof schema === "function"
+    ? (cfg) => schema(cfg)
     : typeof mod.resolveConfig === "function"
       ? (cfg) => mod.resolveConfig(cfg)
       : undefined;
@@ -141,6 +144,7 @@ const args = process.argv.slice(2);
 const files = [];
 if (args.length === 0) {
   files.push(path.join(pkgRoot, "preset", "agent.cordis.yml"), path.join(pkgRoot, "preset-biomni", "agent.cordis.yml"));
+  files.push(path.join(pkgRoot, "preset", "cordis.patch.yml"), path.join(pkgRoot, "preset-biomni", "cordis.patch.yml"));
 } else {
   for (const a of args) {
     const p = path.resolve(a);
@@ -174,7 +178,7 @@ for (const file of files) {
     if (res.status === "ok") {
       console.log(`  OK     ${id} -> ${name}`);
       checked++;
-    } else if (res.status === "fail") {
+    } else if (res.status === "fail" || res.status === "unresolvable") {
       console.error(`  FAIL   ${id} -> ${name}\n         ${res.why}`);
       failures++;
     } else {

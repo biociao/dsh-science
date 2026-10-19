@@ -12,6 +12,7 @@
 
 import path from "node:path";
 import * as wb from "./workbench.mjs";
+import { isTrustedLocalRequest } from "./http-guard.mjs";
 
 export const name = "science-workbench-ui";
 export const inject = ["webServer"];
@@ -36,18 +37,8 @@ function send(res, status, obj) {
   res.end(body);
 }
 
-function sameOrigin(req) {
-  const origin = req.headers.origin;
-  if (!origin) return false;
-  const host = req.headers.host;
-  if (!host) return false;
-  try {
-    const u = new URL(origin);
-    return u.host === host;
-  } catch {
-    return false;
-  }
-}
+// 来源校验见 ./http-guard.mjs：桌面端转发（dsh-app://app → 本机 Host）会删除
+// Origin，因此「无 Origin + 回环 Host」放行；跨站/不匹配 Origin 仍然拒绝。
 
 const fail = (msg) => ({ ok: false, error: String(msg && msg.message || msg).slice(0, 400) });
 const str = (v) => (v === undefined || v === null ? "" : String(v).trim());
@@ -150,7 +141,7 @@ function apply(ctx, config = {}) {
     path: "/dsh-science/workbench",
     async handler(req, res) {
       if (req.method !== "POST") return send(res, 405, { ok: false, error: "仅支持 POST" });
-      if (!sameOrigin(req)) return send(res, 403, { ok: false, error: "非浏览器同源请求被拒绝（缺少/不匹配 Origin）" });
+      if (!isTrustedLocalRequest(req)) return send(res, 403, { ok: false, error: "请求来源校验失败（Origin 与 Host 不一致，或 Host 不是本机回环地址）" });
       const name = (req.url || "").replace(/^\/dsh-science\/workbench\/?/, "").split("/")[0];
       if (!name || !METHODS.includes(name)) return send(res, 404, { ok: false, error: `未知方法 ${name}` });
       try {

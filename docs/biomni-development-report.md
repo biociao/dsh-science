@@ -1,5 +1,7 @@
 # 开发报告：Biomni 模式（复刻 snap-stanford/Biomni 的通用生物医学 agent harness）
 
+> 本文保留旧版实现与验收记录。DSH 0.2.0-rc.2 的 preset 注册与安装已迁移，当前使用方式见 [兼容性说明](dsh-0.2-compatibility.md)。
+
 - 项目：`dsh-science`（DeepSeek Harness 的 Claude Science 式科研工作台）
 - 分支：`feat/sci-workbench`
 - 需求：调研 Biomni 的设计哲学与架构，把它的 harness 模式复刻为 dcs-science 中与「科学模式」并列的一个「Biomni 模式」

@@ -1,0 +1,76 @@
+{
+  "schema_version": "0.1.0",
+  "core": "bioinformatics-habits",
+  "packs": [
+    {
+      "pack": "genomics",
+      "display_name": "基因组变异",
+      "maturity": "execution",
+      "path": "packs/genomics/",
+      "scope": "种系与体细胞 SNV/indel、CNV/SV、变异注释与解读前置检查"
+    },
+    {
+      "pack": "transcriptomics",
+      "display_name": "转录组",
+      "maturity": "execution",
+      "path": "packs/transcriptomics/",
+      "scope": "bulk RNA-seq 的 FASTQ→count、表达矩阵 QC、差异表达与下游解释"
+    },
+    {
+      "pack": "single-cell",
+      "display_name": "单细胞与单核",
+      "maturity": "execution",
+      "path": "packs/single-cell/",
+      "scope": "scRNA/snRNA 的 FASTQ→count、post-count QC、聚类注释与整合"
+    },
+    {
+      "pack": "epigenomics",
+      "display_name": "表观组",
+      "maturity": "execution",
+      "path": "packs/epigenomics/",
+      "scope": "ATAC-seq、ChIP-seq、CUT&RUN、CUT&Tag 与 DNA 甲基化的 QC、peak 与差异分析"
+    },
+    {
+      "pack": "microbiome",
+      "display_name": "微生物组",
+      "maturity": "execution",
+      "path": "packs/microbiome/",
+      "scope": "16S/18S/ITS/COI 扩增子与 shotgun 宏基因组的分类、多样性与功能分析"
+    },
+    {
+      "pack": "proteomics",
+      "display_name": "蛋白组",
+      "maturity": "planning",
+      "path": "packs/proteomics/",
+      "scope": "DDA/DIA 蛋白质组、PTM 富集与定量比较"
+    },
+    {
+      "pack": "metabolomics",
+      "display_name": "代谢组",
+      "maturity": "planning",
+      "path": "packs/metabolomics/",
+      "scope": "LC-MS/GC-MS/NMR 的非靶向与靶向代谢组、注释与统计"
+    },
+    {
+      "pack": "spatial",
+      "display_name": "空间组学",
+      "maturity": "planning",
+      "path": "packs/spatial/",
+      "scope": "Visium/Xenium/CosMx 等空间转录组的计数、影像配准、空间分析与去卷积"
+    },
+    {
+      "pack": "multi-omics",
+      "display_name": "多组学整合",
+      "maturity": "planning",
+      "path": "packs/multi-omics/",
+      "scope": "转录组/蛋白组/代谢组/表观组等已就绪产物的样本对齐、整合与联合分析"
+    },
+    {
+      "pack": "statistical-genetics",
+      "display_name": "统计遗传",
+      "maturity": "planning",
+      "path": "packs/statistical-genetics/",
+      "scope": "GWAS、PRS、QTL 与孟德尔随机化的质控、建模与结果解释"
+    }
+  ]
+}

@@ -201,6 +201,34 @@ console.log("\n== 3. 适配器 listModels / resolveModel ==");
   ok("enabled:false → listModels 为空", (await adapter2.listModels("model-tier")).length === 0);
 }
 
+// DSH 0.2 resolves a prepared call before dispatch, including image pricing.
+{
+  const ctx = makeCtx({ providers: ALL_PROVIDERS });
+  const file = writeStore({ schema: 2, activeId: "s1", schemes: [SCHEME] });
+  mod.apply(ctx, { configFile: file });
+  const adapter = ctx._adapter;
+  const signal = new AbortController().signal;
+  let receivedSignal;
+  ctx.llm.resolveModelInfo = async (provider, model, suppliedSignal) => {
+    receivedSignal = suppliedSignal;
+    return { provider, id: model, name: model, inputModalities: ["text"] };
+  };
+  const prepared = await adapter.prepareCall("model-tier", "s1", signal);
+  ok("prepareCall 返回虚拟模型标识与 dispatch", prepared.model.provider === "model-tier" && prepared.model.id === "s1" && typeof prepared.stream === "function");
+  ok("prepareCall 转发 metadata 取消信号", receivedSignal === signal);
+  ok("imageRequestPricing 可调用且无固定价格", adapter.imageRequestPricing("model-tier", "s1") === undefined);
+  // Mutate both the scheme and its nested route after preparation.
+  fs.writeFileSync(file, JSON.stringify({ schema: 2, activeId: "s1", schemes: [{ ...SCHEME,
+    tiers: { ...SCHEME.tiers, default: { provider: "kimi-code", model: "new-model" } },
+  }] }));
+  await drain(prepared.stream({ provider: "model-tier", model: "s1", messages: [] }));
+  ok("已准备的调用保留原方案路由", ctx.lastStreamOptions.provider === "deepseek-official");
+  const next = await adapter.prepareCall("model-tier", "s1");
+  await drain(next.stream({ provider: "model-tier", model: "s1", messages: [] }));
+  ok("新调用读取更新后的方案", ctx.lastStreamOptions.provider === "kimi-code" && ctx.lastStreamOptions.model === "new-model");
+  fs.rmSync(file);
+}
+
 // ── 4. 适配器 stream 路由 ─────────────────────────────────────────────
 
 console.log("\n== 4. 适配器 stream 路由 ==");

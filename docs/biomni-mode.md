@@ -64,7 +64,8 @@ Biomni 是"通用生物医学 AI agent"，核心三条：
 ```bash
 # preset（Biomni 模式的完整体验：persona + biomni_* 工具）
 bash scripts/sync-engines.sh        # 引擎镜像到 preset-biomni/engines
-bash scripts/install-biomni.sh      # -> ~/.dsh/.agent-presets/biomni（遵循 $DSH_HOME）
+node scripts/build-preset-bundles.mjs # 生成 DSH 0.2 声明式 preset 补丁
+bash scripts/install-biomni.sh      # 注册 local-bundles 中的模式包到 web profile
 # 技能
 bash scripts/install-skills.sh      # 技能含 biomni-agent，装到 ~/.dsh/skills
 ```

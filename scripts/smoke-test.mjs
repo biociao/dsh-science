@@ -139,7 +139,7 @@ const sub = (name) => path.join(work, name);
 // ── 1. 静态包校验 ───────────────────────────────────────────────────
 console.log("== 1. 静态包校验 ==");
 const pkgJson = JSON.parse(await fsp.readFile(path.join(pkg, "package.json"), "utf8"));
-ok("package.json: dsh.bundle.patch", pkgJson?.dsh?.bundle?.patch === "./cordis.patch.yml");
+ok("package.json: bundle includes both declarative presets", JSON.stringify(pkgJson?.dsh?.bundle?.patch) === JSON.stringify(["./cordis.patch.yml", "./preset/cordis.patch.yml", "./preset-biomni/cordis.patch.yml"]));
 
 const patchText = await fsp.readFile(path.join(pkg, "cordis.patch.yml"), "utf8");
 let patchOk =
@@ -149,21 +149,23 @@ let patchOk =
   patchText.includes("dsh-science/engines/scientific-reviewer.mjs") &&
   patchText.includes("dsh-science/engines/workbench.mjs") &&
   patchText.includes("dsh-science/engines/workbench-ui.mjs") &&
+  patchText.includes("dsh-science/engines/roadmap.mjs") &&
+  patchText.includes("dsh-science/engines/roadmap-ui.mjs") &&
   patchText.includes("- id: model-tier") &&
   patchText.includes("name: dsh-model-tier");
-ok("cordis.patch.yml: 子路径导出引用六个引擎 + dsh-model-tier 挂载行", patchOk);
+ok("cordis.patch.yml: 子路径导出引用八个引擎 + dsh-model-tier 挂载行", patchOk);
 ok("package.json 依赖 dsh-model-tier（配套路由 bundle）", typeof pkgJson.dependencies?.["dsh-model-tier"] === "string");
 ok("package.json exports ./engines/*（含 core.mjs 子路径）", Boolean(pkgJson.exports?.["./engines/*"]));
 
 let mirrorOk = true;
-for (const e of ["core.mjs", "research-loop.mjs", "artifact-registry.mjs", "remote-compute.mjs", "workbench.mjs"]) {
+for (const e of ["core.mjs", "research-loop.mjs", "artifact-registry.mjs", "remote-compute.mjs", "workbench.mjs", "roadmap.mjs"]) {
   const a = await sha256(path.join(pkg, "engines", e));
   const b = await sha256(path.join(pkg, "preset", "engines", e));
   if (a !== b) mirrorOk = false;
 }
 ok("engines/ ↔ preset/engines/ 镜像一致（含 core.mjs）", mirrorOk);
-// scientific-reviewer / workbench-ui 是 HOST-only 引擎（agent/request 监听、webServer 路由
-// 装不进按 agent 隔离的 preset），不进入 preset 镜像清单
+// scientific-reviewer / workbench-ui / roadmap-ui 是 HOST-only 引擎（agent/request 监听、
+// webServer 路由装不进按 agent 隔离的 preset），不进入 preset 镜像清单
 ok(
   "scientific-reviewer 不进 preset/engines 镜像（HOST-only）",
   !(await fsp.stat(path.join(pkg, "preset", "engines", "scientific-reviewer.mjs")).then(() => true, () => false)),
@@ -171,6 +173,10 @@ ok(
 ok(
   "workbench-ui 不进 preset/engines 镜像（webServer HOST-only）",
   !(await fsp.stat(path.join(pkg, "preset", "engines", "workbench-ui.mjs")).then(() => true, () => false)),
+);
+ok(
+  "roadmap-ui 不进 preset/engines 镜像（webServer HOST-only）",
+  !(await fsp.stat(path.join(pkg, "preset", "engines", "roadmap-ui.mjs")).then(() => true, () => false)),
 );
 
 // ── 2. 插件契约与工具注册 ───────────────────────────────────────────
@@ -247,6 +253,20 @@ ok("research-workbench 注册 5 工具", wbkMissing.length === 0, wbkMissing.len
 ok("research-workbench 工具全部结构化 JSON 输出", EXPECT_WB.every((n) => wbkTools[n]?.output?.schema?.type === "object"));
 const wbUiMod = await import(path.join(pkg, "engines", "workbench-ui.mjs"));
 ok("workbench-ui: name/inject/apply", wbUiMod.name === "science-workbench-ui" && wbUiMod.inject?.includes("webServer") && typeof wbUiMod.apply === "function");
+
+// 技术路线图引擎（issue board → 路线图模块）：契约 + 工具清单 + 结构化输出 + HOST 侧
+const rmMod = await import(path.join(pkg, "engines", "roadmap.mjs"));
+const rmTools = {};
+await rmMod.apply({ tools: { register: (d) => (rmTools[d.name] = d) } }, {});
+ok("roadmap: name/inject/apply", rmMod.name === "science-roadmap" && rmMod.inject?.includes("tools") && typeof rmMod.apply === "function");
+const EXPECT_RM = ["roadmap_init", "roadmap_show", "roadmap_node_add", "roadmap_node_update", "roadmap_node_history", "roadmap_node_revert", "roadmap_link", "roadmap_apply", "roadmap_layout", "roadmap_render"];
+const rmMissing = EXPECT_RM.filter((n) => !rmTools[n]);
+ok("roadmap 注册 10 工具", rmMissing.length === 0, rmMissing.length ? `缺：${rmMissing}` : "");
+ok("roadmap 工具全部结构化 JSON 输出", EXPECT_RM.every((n) => rmTools[n]?.output?.schema?.type === "object"));
+ok("roadmap: 四种关系语义（串联/并联/反馈/循环）", JSON.stringify(rmMod.EDGE_TYPES) === JSON.stringify(["serial", "parallel", "feedback", "loop"]));
+const rmUiMod = await import(path.join(pkg, "engines", "roadmap-ui.mjs"));
+ok("roadmap-ui: name/inject/apply", rmUiMod.name === "science-roadmap-ui" && rmUiMod.inject?.includes("webServer") && typeof rmUiMod.apply === "function");
+ok("roadmap-ui: 导出 METHODS（客户端方法对齐门禁用）", Array.isArray(rmUiMod.METHODS) && rmUiMod.METHODS.includes("generate"));
 
 // ── 3. 错误码 / 校验（隔离根目录，互不干扰）──────────────────────────
 console.log("\n== 3. 错误码与校验约束 ==");
@@ -686,8 +706,14 @@ const hdr = { origin: "http://127.0.0.1:3080", host: "127.0.0.1:3080" };
 
 const r405 = await fakeReqRes({ method: "GET", url: "/dsh-science/remote-hosts/list", headers: hdr });
 ok("非 POST → 405", r405._status === 405);
-const r403 = await fakeReqRes({ method: "POST", url: "/dsh-science/remote-hosts/list", headers: { host: "127.0.0.1:3080" } });
-ok("缺 Origin → 403（同源校验）", r403._status === 403);
+const rLoop = await fakeReqRes({ method: "POST", url: "/dsh-science/remote-hosts/list", headers: { host: "127.0.0.1:3080" } });
+ok("缺 Origin + 回环 Host → 放行（桌面壳转发）", rLoop._status === 200 && JSON.parse(rLoop._body).ok === true);
+const rCross = await fakeReqRes({ method: "POST", url: "/dsh-science/remote-hosts/list", headers: { ...hdr, origin: "http://evil.example" } });
+ok("跨站 Origin → 403（同源校验）", rCross._status === 403);
+const rCrossSite = await fakeReqRes({ method: "POST", url: "/dsh-science/remote-hosts/list", headers: { ...hdr, "sec-fetch-site": "cross-site" } });
+ok("Sec-Fetch-Site: cross-site → 403", rCrossSite._status === 403);
+const rRemoteNoOrigin = await fakeReqRes({ method: "POST", url: "/dsh-science/remote-hosts/list", headers: { host: "10.0.0.7:3080" } });
+ok("缺 Origin + 非回环 Host → 403", rRemoteNoOrigin._status === 403);
 const r404 = await fakeReqRes({ method: "POST", url: "/dsh-science/remote-hosts/nope", headers: hdr });
 ok("未知方法 → 404", r404._status === 404);
 
@@ -768,8 +794,10 @@ function mtReqRes({ method, url, headers = {}, body }) {
 }
 const mt405 = await mtReqRes({ method: "GET", url: "/dsh-model-tier/config", headers: hdr });
 ok("model-tier-ui: 非 POST → 405", mt405._status === 405);
-const mt403 = await mtReqRes({ method: "POST", url: "/dsh-model-tier/config", headers: { host: "127.0.0.1:3080" } });
-ok("model-tier-ui: 缺 Origin → 403", mt403._status === 403);
+const mtLoop = await mtReqRes({ method: "POST", url: "/dsh-model-tier/config", headers: { host: "127.0.0.1:3080" } });
+ok("model-tier-ui: 缺 Origin + 回环 Host → 放行（桌面壳转发）", mtLoop._status === 200 && JSON.parse(mtLoop._body).ok === true);
+const mtCross = await mtReqRes({ method: "POST", url: "/dsh-model-tier/config", headers: { ...hdr, origin: "http://evil.example" } });
+ok("model-tier-ui: 跨站 Origin → 403", mtCross._status === 403);
 const mt404 = await mtReqRes({ method: "POST", url: "/dsh-model-tier/nope", headers: hdr });
 ok("model-tier-ui: 未知方法 → 404", mt404._status === 404);
 const mtCfg = JSON.parse((await mtReqRes({ method: "POST", url: "/dsh-model-tier/config", headers: hdr }))._body);
@@ -902,12 +930,154 @@ const wbOverviewHttp = JSON.parse((await wbReqRes({ method: "POST", url: "/dsh-s
 ok("workbench-ui: overview 返回项目", wbOverviewHttp.ok === true && wbOverviewHttp.projects.length === 2);
 const wbClsHttp = JSON.parse((await wbReqRes({ method: "POST", url: "/dsh-science/workbench/classify", headers: wbHdr, body: { root: wbRoot, path: "projA", category: "pathogen", tags: ["amr", "plasmid"] } }))._body);
 ok("workbench-ui: classify 更新标签", wbClsHttp.ok === true && wbClsHttp.project.tags.join(",") === "amr,plasmid");
-const wb403 = await wbReqRes({ method: "POST", url: "/dsh-science/workbench/overview", headers: { host: "127.0.0.1:3080" }, body: { root: wbRoot } });
-ok("workbench-ui: 缺 Origin → 403", wb403._status === 403);
+const wbLoop = await wbReqRes({ method: "POST", url: "/dsh-science/workbench/overview", headers: { host: "127.0.0.1:3080" }, body: { root: wbRoot } });
+ok("workbench-ui: 缺 Origin + 回环 Host → 放行（桌面壳转发）", wbLoop._status === 200 && JSON.parse(wbLoop._body).ok === true);
+const wbCross = await wbReqRes({ method: "POST", url: "/dsh-science/workbench/overview", headers: { ...wbHdr, origin: "http://evil.example" }, body: { root: wbRoot } });
+ok("workbench-ui: 跨站 Origin → 403", wbCross._status === 403);
 const wb405 = await wbReqRes({ method: "GET", url: "/dsh-science/workbench/overview", headers: wbHdr });
 ok("workbench-ui: 非 POST → 405", wb405._status === 405);
 const wb404 = await wbReqRes({ method: "POST", url: "/dsh-science/workbench/nope", headers: wbHdr, body: {} });
 ok("workbench-ui: 未知方法 → 404", wb404._status === 404);
+
+// ── 12. 技术路线图（roadmap_* 工具 + 版本管理 + 画布 REST 路由）─────────────
+console.log("\n== 12. 技术路线图（roadmap_* + 版本管理 + roadmap-ui 路由）==");
+const rmRoot = sub("t-roadmap");
+await fsp.mkdir(rmRoot, { recursive: true });
+const rmInit = await rmTools.roadmap_init.execute({ root: rmRoot, title: "AMR 路线图" }, wbExec);
+ok("roadmap: 初始化落盘 .dsh/roadmap.json", rmInit.created === true && (await fsp.stat(path.join(rmRoot, ".dsh", "roadmap.json")).then(() => true, () => false)));
+const rmA = await rmTools.roadmap_node_add.execute({ root: rmRoot, title: "质控", kind: "step", track: "数据", color: "#4f8ef7", shape: "round", params: { q20: 0.9 }, tests: ["quality"] }, wbExec);
+const rmB = await rmTools.roadmap_node_add.execute({ root: rmRoot, title: "组装", kind: "step", track: "组装" }, wbExec);
+const rmC = await rmTools.roadmap_node_add.execute({ root: rmRoot, title: "分型", kind: "milestone", track: "分析", color: "amber-6", shape: "hexagon" }, wbExec);
+ok("roadmap: 节点 v1 + 自定义颜色/形状/超参", rmA.node.version === 1 && rmA.node.color === "#4f8ef7" && rmA.node.shape === "round" && rmA.node.params.q20 === 0.9 && rmC.node.color === "amber-6");
+await rmTools.roadmap_link.execute({ root: rmRoot, from: rmA.node.id, to: rmB.node.id, type: "serial", label: "clean reads" }, wbExec);
+await rmTools.roadmap_link.execute({ root: rmRoot, from: rmB.node.id, to: rmC.node.id, type: "serial" }, wbExec);
+await rmTools.roadmap_link.execute({ root: rmRoot, from: rmA.node.id, to: rmC.node.id, type: "parallel", label: "并行探索" }, wbExec);
+await rmTools.roadmap_link.execute({ root: rmRoot, from: rmC.node.id, to: rmA.node.id, type: "feedback", label: "分型异常回灌" }, wbExec);
+await rmTools.roadmap_link.execute({ root: rmRoot, from: rmC.node.id, type: "loop", label: "迭代" }, wbExec);
+const rmGraph = await rmTools.roadmap_show.execute({ root: rmRoot, node: rmA.node.id }, wbExec);
+ok("roadmap: 四类关系落库 + 图统计", rmGraph.roadmap.stats.byType.serial === 2 && rmGraph.roadmap.stats.byType.parallel === 1 && rmGraph.roadmap.stats.byType.feedback === 1 && rmGraph.roadmap.stats.byType.loop === 1);
+ok("roadmap: 环检测（反馈回路 + 自环）", rmGraph.roadmap.stats.cycleCount === 2 && rmGraph.roadmap.stats.nodesInCycle.includes(rmA.node.id));
+ok("roadmap: 关键路径与上下游闭包", rmGraph.roadmap.stats.criticalPath.length >= 2 && rmGraph.node.downstream.length === 2);
+await expectThrow(() => rmTools.roadmap_link.execute({ root: rmRoot, from: rmA.node.id, to: rmB.node.id, type: "serial" }, wbExec), "ERR_VALIDATION", "roadmap: 重复关系被拒");
+await expectThrow(() => rmTools.roadmap_node_add.execute({ root: rmRoot, title: "x", color: "not a color" }, wbExec), "ERR_VALIDATION", "roadmap: 非法颜色被拒");
+
+// 版本管理：语义变更进版本、布局不进版本、回滚是追加式
+const rmV2 = await rmTools.roadmap_node_update.execute({ root: rmRoot, node: rmA.node.id, params: { q20: 0.95 }, note: "放宽阈值" }, wbExec);
+ok("roadmap: 更新追加 v2（记录变更字段与备注）", rmV2.node.version === 2 && rmV2.version.changed.includes("params") && rmV2.version.note === "放宽阈值");
+const rmDrag = await rmTools.roadmap_node_update.execute({ root: rmRoot, node: rmA.node.id, pos: { x: 300, y: 120 } }, wbExec);
+ok("roadmap: 拖拽只改布局、不产生版本", rmDrag.node.version === 2 && rmDrag.version === null && rmDrag.node.pos.x === 300);
+const rmHist = await rmTools.roadmap_node_history.execute({ root: rmRoot, node: rmA.node.id, from: 1, to: 2 }, wbExec);
+ok("roadmap: 版本历史 + 字段级 diff", rmHist.versions.length === 2 && rmHist.diff.changed.includes("params"));
+const rmRev = await rmTools.roadmap_node_revert.execute({ root: rmRoot, node: rmA.node.id, version: 1, note: "回滚" }, wbExec);
+ok("roadmap: 回滚 → 追加 v3 且历史保留", rmRev.node.version === 3 && rmRev.revertedTo === 1 && rmRev.node.versions.length === 3 && rmRev.node.params.q20 === 0.9 && rmRev.node.pos.x === 300);
+
+// AI 辅助生成：批量 spec → 原子落盘；同名节点幂等
+const rmSpec = { nodes: [{ ref: "x1", title: "质控", track: "数据" }, { ref: "x2", title: "去宿主污染", track: "数据" }], edges: [{ from: "x1", to: "x2", type: "serial" }] };
+const rmApply1 = await rmTools.roadmap_apply.execute({ root: rmRoot, spec: rmSpec, note: "AI 生成" }, wbExec);
+ok("roadmap: roadmap_apply 批量生成（同名认领 + 新建）", rmApply1.result.updated.length === 1 && rmApply1.result.created.length === 1 && rmApply1.result.edgesAdded.length === 1);
+const rmApply2 = await rmTools.roadmap_apply.execute({ root: rmRoot, spec: rmSpec }, wbExec);
+ok("roadmap: 重复 apply 幂等（0 新建 / 0 新边）", rmApply2.result.created.length === 0 && rmApply2.result.edgesAdded.length === 0 && rmApply2.result.edgesSkipped.length === 1);
+
+// 布局 / 渲染
+const rmLayout = await rmTools.roadmap_layout.execute({ root: rmRoot, mode: "auto", overwrite: true, viewport: { x: 1, y: 2, k: 1.5 } }, wbExec);
+ok("roadmap: 自动布局 + 视口持久化", rmLayout.moved === 4 && rmLayout.viewport.k === 1.5);
+const rmMm = await rmTools.roadmap_render.execute({ root: rmRoot, format: "mermaid" }, wbExec);
+ok("roadmap: mermaid 渲染（串联箭头 + 反馈虚线 + 形状）", rmMm.text.startsWith("flowchart LR") && rmMm.text.includes("-->|") && rmMm.text.includes("-.->|"));
+const rmDot = await rmTools.roadmap_render.execute({ root: rmRoot, format: "dot" }, wbExec);
+ok("roadmap: dot 渲染", rmDot.text.startsWith("digraph roadmap {"));
+
+// roadmap-ui 宿主侧：注册前缀路由 + 画布 CRUD + 同源/方法防护
+let rmRoute = null;
+const rmWebServer = { register: (row) => { rmRoute = row; return () => {}; } };
+rmUiMod.apply({ get: (k) => (k === "webServer" ? rmWebServer : undefined), on: () => {} }, { roadmapRoot: rmRoot });
+ok("roadmap-ui: 注册前缀路由 /dsh-science/roadmap", rmRoute?.path === "/dsh-science/roadmap");
+function rmReqRes({ method, url, headers = {}, body }) {
+  const json = body === undefined ? null : JSON.stringify(body);
+  return new Promise((resolve) => {
+    const res = { _status: 0, _body: "", writeHead(s) { this._status = s; }, end(b) { this._body = b; resolve(this); } };
+    const req = new EventEmitter();
+    req.method = method; req.url = url; req.headers = headers; req.destroy = () => {};
+    setImmediate(() => { if (json !== null) req.emit("data", json); req.emit("end"); });
+    return rmRoute.handler(req, res);
+  });
+}
+const rmShowHttp = JSON.parse((await rmReqRes({ method: "POST", url: "/dsh-science/roadmap/show", headers: wbHdr, body: { root: rmRoot } }))._body);
+ok("roadmap-ui: show 返回画布数据（含带坐标的节点）", rmShowHttp.ok === true && rmShowHttp.roadmap.nodes.length === 4 && rmShowHttp.roadmap.nodes[0].pos !== undefined);
+const rmUpdHttp = JSON.parse((await rmReqRes({ method: "POST", url: "/dsh-science/roadmap/node-update", headers: wbHdr, body: { root: rmRoot, node: rmA.node.id, patch: { shape: "diamond", color: "#22c55e" } } }))._body);
+ok("roadmap-ui: node-update 改形状/颜色 → 追加新版本", rmUpdHttp.ok === true && rmUpdHttp.node.shape === "diamond" && rmUpdHttp.node.color === "#22c55e" && rmUpdHttp.version.change === "update" && rmUpdHttp.version.changed.includes("shape"));
+const rmPromptHttp = JSON.parse((await rmReqRes({ method: "POST", url: "/dsh-science/roadmap/prompt", headers: wbHdr, body: { root: rmRoot, goal: "耐药分型" } }))._body);
+ok("roadmap-ui: prompt 生成可粘贴提示词", rmPromptHttp.ok === true && rmPromptHttp.prompt.includes("耐药分型") && rmPromptHttp.prompt.includes("feedback"));
+const rmGenHttp = JSON.parse((await rmReqRes({ method: "POST", url: "/dsh-science/roadmap/generate", headers: wbHdr, body: { root: rmRoot, goal: "x" } }))._body);
+ok("roadmap-ui: 无模型配置时 generate 给出可操作错误", rmGenHttp.ok === false && /无可用模型|LLM 服务不可用/.test(rmGenHttp.error));
+const rmLoop = await rmReqRes({ method: "POST", url: "/dsh-science/roadmap/show", headers: { host: "127.0.0.1:3080" }, body: {} });
+ok("roadmap-ui: 缺 Origin + 回环 Host → 放行（桌面端 403 回归）", rmLoop._status === 200 && JSON.parse(rmLoop._body).ok === true);
+const rmCross = await rmReqRes({ method: "POST", url: "/dsh-science/roadmap/show", headers: { ...wbHdr, origin: "http://evil.example" }, body: {} });
+ok("roadmap-ui: 跨站 Origin → 403", rmCross._status === 403);
+const rm405 = await rmReqRes({ method: "GET", url: "/dsh-science/roadmap/show", headers: wbHdr });
+ok("roadmap-ui: 非 POST → 405", rm405._status === 405);
+const rm404 = await rmReqRes({ method: "POST", url: "/dsh-science/roadmap/nope", headers: wbHdr, body: {} });
+ok("roadmap-ui: 未知方法 → 404", rm404._status === 404);
+
+// ── 13. 侧边栏增强（sidebar-ui：固定工作区 + reveal/open 路由）──────────────
+console.log("\n== 13. 侧边栏增强（sidebar-ui webServer 路由）==");
+ok(
+  "cordis.patch.yml: 侧边栏宿主行（bundle-only）",
+  patchText.includes("- id: science-sidebar-ui") && patchText.includes("dsh-science/engines/sidebar-ui.mjs"),
+);
+ok(
+  "sidebar-ui 不进 preset/engines 镜像（webServer HOST-only）",
+  !(await fsp.stat(path.join(pkg, "preset", "engines", "sidebar-ui.mjs")).then(() => true, () => false)),
+);
+
+const sbMod = await import(path.join(pkg, "engines", "sidebar-ui.mjs"));
+ok(
+  "sidebar-ui: name/inject/apply/makeHandlers",
+  sbMod.name === "science-sidebar-ui" && sbMod.inject?.includes("webServer") && typeof sbMod.apply === "function" && typeof sbMod.makeHandlers === "function",
+);
+
+// 隔离状态文件 + fake spawn（不真的打开文件管理器）；platform 注入 darwin 保证命令可断言
+const sbPins = sub("t-sidebar/sidebar.json");
+const sbSpawnCalls = [];
+const sbSpawn = (cmd, args, opts) => {
+  const child = { cmd, args, opts, unrefCalled: false, on() { return this; }, unref() { this.unrefCalled = true; return this; } };
+  sbSpawnCalls.push(child);
+  return child;
+};
+let sbRoute = null;
+const sbWebServer = { register: (row) => { sbRoute = row; return () => {}; } };
+sbMod.apply({ get: (k) => (k === "webServer" ? sbWebServer : undefined), on: () => {} }, { pinsFile: sbPins, spawn: sbSpawn, platform: "darwin" });
+ok("sidebar-ui: 注册前缀路由 /dsh-science/sidebar", sbRoute?.kind === "prefix" && sbRoute?.path === "/dsh-science/sidebar");
+
+function sbReqRes({ method, url, headers = {}, body }) {
+  const jb = body === undefined ? null : JSON.stringify(body);
+  return new Promise((resolve) => {
+    const res = { _status: 0, _body: "", writeHead(s) { this._status = s; }, end(b) { this._body = b; resolve(this); } };
+    const req = new EventEmitter();
+    req.method = method; req.url = url; req.headers = headers; req.destroy = () => {};
+    setImmediate(() => { if (jb !== null) req.emit("data", jb); req.emit("end"); });
+    return sbRoute.handler(req, res);
+  });
+}
+const sbHdr = { origin: "http://127.0.0.1:3080", host: "127.0.0.1:3080" };
+const sbCfg = JSON.parse((await sbReqRes({ method: "POST", url: "/dsh-science/sidebar/config", headers: sbHdr }))._body);
+ok("sidebar-ui: config 返回隔离状态文件与平台", sbCfg.ok === true && sbCfg.platform === "darwin" && sbCfg.pinsFile === path.resolve(sbPins));
+const sbPin1 = JSON.parse((await sbReqRes({ method: "POST", url: "/dsh-science/sidebar/pin", headers: sbHdr, body: { workspaceId: "ws1", path: work, title: "冒烟工作区" } }))._body);
+const sbPin2 = JSON.parse((await sbReqRes({ method: "POST", url: "/dsh-science/sidebar/pin", headers: sbHdr, body: { workspaceId: "ws2", title: "第二个" } }))._body);
+ok("sidebar-ui: pin 落盘并回显", sbPin1.ok === true && sbPin2.ok === true && (await fsp.stat(sbPins).then(() => true, () => false)));
+ok("sidebar-ui: pins 最近固定在前", sbPin2.pins.map((p) => p.workspaceId).join(",") === "ws2,ws1");
+const sbReveal = JSON.parse((await sbReqRes({ method: "POST", url: "/dsh-science/sidebar/reveal", headers: sbHdr, body: { path: work } }))._body);
+const sbCall = sbSpawnCalls[sbSpawnCalls.length - 1];
+ok("sidebar-ui: reveal 调系统文件管理器（darwin open -R）", sbReveal.ok === true && sbCall?.cmd === "open" && JSON.stringify(sbCall.args) === JSON.stringify(["-R", work]) && sbCall.unrefCalled === true);
+const sbUnpin = JSON.parse((await sbReqRes({ method: "POST", url: "/dsh-science/sidebar/unpin", headers: sbHdr, body: { workspaceId: "ws1" } }))._body);
+ok("sidebar-ui: unpin 移除", sbUnpin.ok === true && sbUnpin.removed === true && sbUnpin.count === 1);
+const sbBad = JSON.parse((await sbReqRes({ method: "POST", url: "/dsh-science/sidebar/open", headers: sbHdr, body: { path: "relative" } }))._body);
+ok("sidebar-ui: 校验失败返回 200 + {ok:false}", sbBad.ok === false && /绝对路径/.test(sbBad.error || ""));
+const sb405 = await sbReqRes({ method: "GET", url: "/dsh-science/sidebar/pins", headers: sbHdr });
+ok("sidebar-ui: 非 POST → 405", sb405._status === 405);
+const sb403 = await sbReqRes({ method: "POST", url: "/dsh-science/sidebar/pins", headers: { ...sbHdr, origin: "http://evil.example" } });
+ok("sidebar-ui: 跨站 Origin → 403", sb403._status === 403);
+const sb404 = await sbReqRes({ method: "POST", url: "/dsh-science/sidebar/nope", headers: sbHdr, body: {} });
+ok("sidebar-ui: 未知方法 → 404", sb404._status === 404);
 
 console.log(`\n结果: ${passed} 通过, ${failures} 失败`);
 if (!process.argv[2]) await fsp.rm(work, { recursive: true, force: true });

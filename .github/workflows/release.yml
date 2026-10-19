@@ -2,7 +2,7 @@
 #
 # 触发：push tag v*（如 v0.1.1）。tag 即版本锚点，须与 package.json version 一致。
 # 流程（全部自动化，人工只需打 tag）：
-#   1. 测试门禁：smoke(62) + stability(25) + bundle-verify（真实 dsh 加载）
+#   1. 测试门禁：npm test + stability + 真实 DSH bundle/preset/router 集成验证
 #   2. 校验 tag 与 package.json 版本一致
 #   3. pnpm pack 出 dsh-science-<ver>.tgz + SHA256SUMS
 #   4. npm publish（NODE_AUTH_TOKEN = npmjs access token，仓库 secret）
@@ -33,7 +33,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - run: node scripts/smoke-test.mjs
+      - run: npm test
       - run: node scripts/stability-test.mjs
 
   bundle-verify:
@@ -48,9 +48,13 @@ jobs:
       - name: Enable pnpm (corepack)
         run: corepack enable
       - name: Install dsh CLI (pinned to verified version)
-        run: npm install -g @deepseek-ai/dsh@0.1.5-rc.1
+        run: npm install -g @deepseek-ai/dsh@0.2.0-rc.2
       - name: Verify bundle install + boot + preset schemas
         run: bash test/verify-bundle.sh
+      - name: Verify standalone preset installation and reinstall
+        run: bash test/verify-preset-install.sh
+      - name: Verify standalone model router with local mock
+        run: bash packages/dsh-model-tier/scripts/test-model-tier.sh
 
   publish:
     name: Publish npm + GitHub Release

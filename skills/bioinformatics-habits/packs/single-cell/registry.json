@@ -1,0 +1,213 @@
+{
+  "schema_version": "0.1.0",
+  "pack": "single-cell",
+  "display_name": "单细胞与单核",
+  "maturity": "execution",
+  "scope": "scRNA/snRNA 的 FASTQ→count、post-count QC、聚类注释与整合",
+  "intake_fields": [
+    {
+      "name": "chemistry",
+      "values": "10x 3'/5'、multiome、其他",
+      "blocking": true,
+      "why": "决定 whitelist 与 barcode 结构"
+    },
+    {
+      "name": "expected_cells",
+      "values": "估计值或范围",
+      "blocking": true,
+      "why": "影响 cell calling 与 doublet 预期"
+    },
+    {
+      "name": "tissue_and_reference",
+      "values": "组织 + 参考 atlas/标记",
+      "blocking": true,
+      "why": "注释不能只靠通用 marker"
+    },
+    {
+      "name": "raw_droplet_matrix",
+      "values": "有 / 无",
+      "blocking": false,
+      "why": "有 raw matrix 才能做 emptyDrops 类校正"
+    }
+  ],
+  "pipelines": {
+    "fastq_to_count": {
+      "display_name": "FASTQ→count",
+      "route_when": [
+        "fastq",
+        "starsolo",
+        "cellranger"
+      ],
+      "preferred_workflow": "STARsolo（容器）",
+      "tools": [
+        "star",
+        "snakemake"
+      ],
+      "local_runner": "run_scrnaseq_fastq_to_count.py",
+      "essential_questions": [
+        "chemistry 与 whitelist？",
+        "预期细胞数？",
+        "是否有 raw droplet matrix？"
+      ],
+      "local_outputs": [
+        "counts/matrix.mtx",
+        "qc/star_summary"
+      ]
+    },
+    "post_count_qc": {
+      "display_name": "post-count QC",
+      "route_when": [
+        "h5ad",
+        "matrix",
+        "qc"
+      ],
+      "preferred_workflow": "scanpy + scDblFinder/CellBender",
+      "tools": [
+        "python",
+        "scanpy",
+        "scvi-tools"
+      ],
+      "local_runner": "run_scrnaseq_post_count_qc.py",
+      "essential_questions": [
+        "是否已做 doublet/ambient 校正？",
+        "线粒体阈值按组织定义？"
+      ],
+      "local_outputs": [
+        "h5ad（qc 后）",
+        "qc/*.csv"
+      ]
+    },
+    "annotation": {
+      "display_name": "聚类与注释",
+      "route_when": [
+        "annotation",
+        "clustering",
+        "umap"
+      ],
+      "preferred_workflow": "marker + reference mapping（Azimuth/scANVI）",
+      "tools": [
+        "scanpy",
+        "seurat",
+        "azimuth"
+      ],
+      "local_runner": null,
+      "essential_questions": [
+        "有无匹配参考？",
+        "注释置信度如何评估？"
+      ],
+      "local_outputs": [
+        "annotation.tsv",
+        "umap.png"
+      ]
+    },
+    "integration": {
+      "display_name": "批次整合",
+      "route_when": [
+        "integration",
+        "harmony",
+        "scvi"
+      ],
+      "preferred_workflow": "Harmony / scVI",
+      "tools": [
+        "harmony",
+        "scvi-tools"
+      ],
+      "local_runner": null,
+      "essential_questions": [
+        "批次与条件是否混杂？",
+        "整合会不会抹掉真实生物学差异？"
+      ],
+      "local_outputs": [
+        "integrated.h5ad"
+      ]
+    }
+  },
+  "resources": {
+    "genome_gtf": {
+      "kind": "reference",
+      "root_env": "SC_REF_GENOME",
+      "expected_files": [
+        "genome.fa",
+        "genes.gtf"
+      ],
+      "required_for": [
+        "fastq_to_count"
+      ],
+      "notes": "与 STAR index 同版本"
+    },
+    "barcode_whitelist": {
+      "kind": "library",
+      "root_env": "SC_WHITELIST",
+      "expected_files": [
+        "whitelist.txt"
+      ],
+      "required_for": [
+        "fastq_to_count"
+      ],
+      "notes": "与 chemistry 匹配"
+    },
+    "atlas_reference": {
+      "kind": "database",
+      "root_env": "SC_ATLAS",
+      "expected_files": [
+        "reference.h5ad"
+      ],
+      "required_for": [
+        "annotation"
+      ],
+      "notes": "组织/物种匹配"
+    }
+  },
+  "qc_metrics": [
+    {
+      "name": "cells_recovered",
+      "rule": "与上样量/预期同量级",
+      "source": "cellranger/STARsolo",
+      "blocking": false
+    },
+    {
+      "name": "median_genes_per_cell",
+      "rule": "按组织定；过低提示空滴或降解",
+      "source": "scanpy",
+      "blocking": true
+    },
+    {
+      "name": "doublet_rate",
+      "rule": "按 10x 回收率估计，>预期需去除",
+      "source": "scDblFinder",
+      "blocking": true
+    },
+    {
+      "name": "ambient_rna",
+      "rule": "SoupX/CellBender 估计污染比例并校正",
+      "source": "SoupX/CellBender",
+      "blocking": false
+    },
+    {
+      "name": "pct_mito",
+      "rule": "按组织设阈值（如 10-20%）",
+      "source": "scanpy",
+      "blocking": true
+    },
+    {
+      "name": "saturation",
+      "rule": "测序饱和度足够检出中等表达基因",
+      "source": "STARsolo/Cell Ranger",
+      "blocking": false
+    },
+    {
+      "name": "batch_mixing",
+      "rule": "整合前后比较，避免过度整合",
+      "source": "kBET/LISI",
+      "blocking": false
+    }
+  ],
+  "compliance": [
+    "人类单细胞数据的隐私与受控访问",
+    "细胞级数据再分发需评估"
+  ],
+  "handoff": [
+    "细胞类型比例统计与统计检验",
+    "multi-omics（CITE-seq/多组学）"
+  ]
+}

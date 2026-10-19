@@ -43,6 +43,42 @@
     # 供 client bundle 的「科研工作台」设置页调用。仅 bundle 形态挂载（不进 preset）。
     - id: science-workbench-ui
       name: dsh-science/engines/workbench-ui.mjs
+    # 技术路线图引擎：把 issue board 升级为「技术路线图」模块 —— 节点（步骤/issue/里程碑，
+    # 可自定义颜色/形状/泳道/画布坐标）+ 带类型的关系边（串联 serial / 并联 parallel /
+    # 反馈 feedback / 循环 loop），外加每个节点的版本管理（语义字段变更追加版本、回滚是
+    # 追加式历史永不删除；画布拖拽只改布局不进版本）。数据文件 <项目根>/.dsh/roadmap.json。
+    # 工具：roadmap_init / roadmap_show / roadmap_node_add / roadmap_node_update /
+    # roadmap_node_history / roadmap_node_revert / roadmap_link / roadmap_apply /
+    # roadmap_layout / roadmap_render。preset「科学模式」同样挂载本引擎（agent 工具）。
+    - id: science-roadmap
+      name: dsh-science/engines/roadmap.mjs
+    # 技术路线图画布面板的宿主侧：webServer 前缀路由 /dsh-science/roadmap/*（画布 CRUD +
+    # 版本操作 + 布局/视口持久化 + mermaid 渲染），并提供两条 AI 辅助生成通路：
+    #   prompt   生成可粘贴到会话的提示词（不依赖模型配置）
+    #   generate 宿主侧直接发起一次 LLM 调用（ai.model 显式指定，缺省回落全局默认模型），
+    #            解析模型输出的 JSON 规格后用 applySpec 原子落盘
+    # 仅 bundle 形态挂载（不进 preset）。
+    - id: science-roadmap-ui
+      name: dsh-science/engines/roadmap-ui.mjs
+      config:
+        # 画布默认打开的项目根（留空时面板会把宿主进程 cwd 作为建议值，用户可在面板顶部修改）
+        roadmapRoot: ""
+        ai:
+          # 「AI 生成」按钮使用的模型；留空则回落会话的全局默认模型。
+          # 建议显式指定（与 scientific-reviewer 评审模型同理：生成与执行解耦）。
+          model:
+            provider: zai-coding-cn
+            model: glm-5.3
+            reasoningEffort: high
+          maxNodes: 40
+          maxTokens: 8000
+          timeoutMs: 180000
+    # Codex 风格侧边栏增强的宿主侧：webServer 前缀路由 /dsh-science/sidebar/*
+    # （固定工作区列表持久化到 $DSH_HOME/dsh-science/sidebar.json，并提供
+    # reveal/open 调系统文件管理器打开/选中工作区目录）。浏览器侧侧边栏通过
+    # 该路由读写；仅 bundle 形态挂载（不进 preset）。
+    - id: science-sidebar-ui
+      name: dsh-science/engines/sidebar-ui.mjs
     # Biomni 模式引擎（资源宇宙 / 检索增强规划 / 计划清单 / 反思自批判）：
     # 与科研工作台/reviewer 并列的另一种研究本体——面向"宽任务快速上手"的通用生物医学
     # agent。tools 在 profile 层可见（与 research_*/artifact_*/remote_* 一致）；persona 与

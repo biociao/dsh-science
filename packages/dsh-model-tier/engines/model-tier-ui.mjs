@@ -30,6 +30,7 @@ import {
   resolveTierTarget,
   routeStatus,
 } from "./model-tier.mjs";
+import { isTrustedLocalRequest } from "./http-guard.mjs";
 
 export const name = "dsh-model-tier-ui";
 // 只硬依赖 llm（任何 profile 都有）；webServer 在 apply 里用延迟注入（ctx.inject）
@@ -46,18 +47,8 @@ function send(res, status, obj) {
   res.end(body);
 }
 
-// 同源校验：只接受浏览器同源请求（防止跨站调用本地服务）
-function sameOrigin(req) {
-  const origin = req.headers.origin;
-  if (!origin) return false; // 非浏览器（curl 等）拒绝
-  const host = req.headers.host;
-  if (!host) return false;
-  try {
-    return new URL(origin).host === host;
-  } catch {
-    return false;
-  }
-}
+// 来源校验见 ./http-guard.mjs：桌面端转发（dsh-app://app → 本机 Host）会删除
+// Origin，因此「无 Origin + 回环 Host」放行；跨站/不匹配 Origin 仍然拒绝。
 
 async function readBody(req) {
   const chunks = [];
@@ -314,7 +305,7 @@ function apply(ctx, config = {}) {
       path: "/dsh-model-tier",
       async handler(req, res) {
         if (req.method !== "POST") return send(res, 405, { ok: false, error: "仅支持 POST" });
-        if (!sameOrigin(req)) return send(res, 403, { ok: false, error: "非浏览器同源请求被拒绝（缺少/不匹配 Origin）" });
+        if (!isTrustedLocalRequest(req)) return send(res, 403, { ok: false, error: "请求来源校验失败（Origin 与 Host 不一致，或 Host 不是本机回环地址）" });
         const name = (req.url || "").replace(/^\/dsh-model-tier\/?/, "").split("/")[0];
         if (!name || !METHODS.includes(name)) return send(res, 404, { ok: false, error: `未知方法 ${name}` });
         try {

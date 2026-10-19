@@ -52,6 +52,20 @@
       Next Question（research_findings 的 nextQuestion 开启下一轮）。任何一步拿不准时回到
       问题本身重新审视。
 
+      ## 技术路线图（路线图即项目计划）
+      多步骤工作不要只在对话里推进 —— 用技术路线图把 步骤/issue/里程碑 显式化：
+      1. 开工前 roadmap_show 看现状；未初始化则 roadmap_init。把本会话要推进的步骤用
+         roadmap_apply 一次建好（nodes 用 ref 别名，edges 用 ref 引用；关系只取四类语义：
+         串联 serial / 并联 parallel / 反馈 feedback / 循环 loop）。重复 apply 是幂等的
+         （按 id/ref/同名 title 认领已有节点），迭代时直接再 apply 一版增量即可。
+      2. 每个节点写清 strategy（分析策略）、params（超参）、tests（测试），并用 refs 关联
+         科学对象（{experiment:"E01", artifact:"tab@2", hypothesis:"H1"}）—— 这样"不同分析
+         策略、超参、测试的上下游逻辑关系"才可回溯。
+      3. 节点推进/换方案时改 status/params/tests 要显式备注原因（roadmap_node_update 的
+         note），引擎会自动追加版本（画布拖拽只改布局、不进版本）；要退回旧策略用
+         roadmap_node_revert，历史永不删除。查历史与字段级差异用 roadmap_node_history。
+      4. 需要给人看时 roadmap_render 输出 mermaid（可贴进 README/论文方法学附图）。
+
       ## 工件与溯源
       重要的结果（数据表、变异列表、图表、模型输出）必须用 artifact_save 保存为版本化工件
       （artifacts/<name>/v<N>/），并如实填写 command / inputs / notes 溯源信息。报告结论时
@@ -147,6 +161,17 @@
 - id: science-research-workbench
   name: ./engines/workbench.mjs
 
+# 技术路线图（issue board → 路线图模块）：每个 步骤/issue/step/milestone 是画布上的节点，
+# 节点之间用带类型的关系边表达上下游逻辑 —— 串联 serial / 并联 parallel / 反馈 feedback /
+# 循环 loop。数据落在 <项目根>/.dsh/roadmap.json；节点带版本管理（语义字段变更追加版本，
+# 画布拖拽只改布局不进版本；回滚是追加式，历史永不删除），便于项目迭代中理清不同分析策略、
+# 超参、测试的上下游关系。工具：roadmap_init / roadmap_show / roadmap_node_add /
+# roadmap_node_update / roadmap_node_history / roadmap_node_revert / roadmap_link /
+# roadmap_apply（AI 批量生成）/ roadmap_layout / roadmap_render（mermaid/dot）。
+# 宿主侧画布 REST API（/dsh-science/roadmap/*）与 Web 画布面板只在 profile bundle 挂载。
+- id: science-roadmap
+  name: ./engines/roadmap.mjs
+
 # ── shell ───────────────────────────────────────────────────────────────────
 
 - id: tool-bash
@@ -185,9 +210,10 @@
 
 # ── goals ───────────────────────────────────────────────────────────────────
 
-# 注意：stock `standard` preset 在这里还有一行 command-goal，本 preset 刻意不再重复声明
-# ——dsh 0.1.5 的宿主组合（`@deepseek-ai/dsh-base` cordis.patch.yml）已挂载
-# `@deepseek-ai/dsh-command-goal`，/goal 斜杠命令在进程级可用。缺这一行**不是**兼容性缺口。
+# DSH 0.2 的 Web 宿主禁用全局 /goal；各 preset 在自己的作用域注册。
+- id: command-goal
+  name: '@deepseek-ai/dsh-command-goal'
+
 - id: tool-goal
   name: '@deepseek-ai/dsh-tool-goal'
 
@@ -284,8 +310,8 @@
         backgroundMode: one-shot
         maxDepth: provider-managed
 
-    - id: workflow-worker-thread
-      name: '@deepseek-ai/dsh-workflow-worker-thread'
+    - id: workflow-ptc
+      name: '@deepseek-ai/dsh-workflow-ptc'
       config:
         provider: spawn
 

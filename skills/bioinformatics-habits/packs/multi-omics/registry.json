@@ -1,0 +1,134 @@
+{
+  "schema_version": "0.1.0",
+  "pack": "multi-omics",
+  "display_name": "多组学整合",
+  "maturity": "planning",
+  "scope": "转录组/蛋白组/代谢组/表观组等已就绪产物的样本对齐、整合与联合分析",
+  "intake_fields": [
+    {
+      "name": "layers",
+      "values": "参与整合的组学列表",
+      "blocking": true,
+      "why": "决定整合方法与样本交集"
+    },
+    {
+      "name": "sample_overlap",
+      "values": "same-sample / same-cohort / partial",
+      "blocking": true,
+      "why": "决定能否做样本级联合建模"
+    },
+    {
+      "name": "normalization",
+      "values": "各组学归一状态",
+      "blocking": true,
+      "why": "未归一/已归一决定预处理步骤"
+    },
+    {
+      "name": "missingness",
+      "values": "缺失模式",
+      "blocking": true,
+      "why": "缺失机制影响插补与结论"
+    }
+  ],
+  "pipelines": {
+    "integration": {
+      "display_name": "整合建模",
+      "route_when": [
+        "mofa",
+        "mixomics",
+        "wnn",
+        "integration"
+      ],
+      "preferred_workflow": "MOFA+ / mixOmics / Seurat WNN / muon",
+      "tools": [
+        "mofa",
+        "mixomics",
+        "seurat",
+        "muon"
+      ],
+      "local_runner": null,
+      "essential_questions": [
+        "样本级还是队列级？",
+        "每层是否都已过 QC？"
+      ],
+      "local_outputs": [
+        "factors/loadings",
+        "integrated embedding"
+      ]
+    },
+    "association": {
+      "display_name": "跨组学关联",
+      "route_when": [
+        "association",
+        "correlation",
+        "cross_omics"
+      ],
+      "preferred_workflow": "相关/回归 + 多重检验",
+      "tools": [
+        "rscript",
+        "python"
+      ],
+      "local_runner": null,
+      "essential_questions": [
+        "混杂与批次？",
+        "多重检验策略？"
+      ],
+      "local_outputs": [
+        "associations.tsv"
+      ]
+    }
+  },
+  "resources": {
+    "sample_map": {
+      "kind": "annotation",
+      "root_env": "OMICS_SAMPLE_MAP",
+      "expected_files": [
+        "sample_map.tsv"
+      ],
+      "required_for": [
+        "integration"
+      ],
+      "notes": "ID 对齐是多组学第一道闸门"
+    }
+  },
+  "qc_metrics": [
+    {
+      "name": "sample_alignment_rate",
+      "rule": "交集样本比例达标并记录",
+      "source": "sample_map",
+      "blocking": true
+    },
+    {
+      "name": "per_layer_qc",
+      "rule": "每层都已通过各自 pack 的 QC",
+      "source": "上游 evidence",
+      "blocking": true
+    },
+    {
+      "name": "missingness_pattern",
+      "rule": "缺失率与机制说明",
+      "source": "矩阵",
+      "blocking": false
+    },
+    {
+      "name": "batch_effect",
+      "rule": "层内/层间批次已评估",
+      "source": "PCA",
+      "blocking": false
+    },
+    {
+      "name": "variance_explained",
+      "rule": "因子解释度合理，避免过拟合",
+      "source": "MOFA+",
+      "blocking": false
+    }
+  ],
+  "compliance": [
+    "跨组学数据叠加提高再识别风险",
+    "受控数据不得混入开放分析"
+  ],
+  "handoff": [
+    "生物学解释与验证实验",
+    "manuscript 图表"
+  ]
+}

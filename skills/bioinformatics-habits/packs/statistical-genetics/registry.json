@@ -1,0 +1,184 @@
+{
+  "schema_version": "0.1.0",
+  "pack": "statistical-genetics",
+  "display_name": "统计遗传",
+  "maturity": "planning",
+  "scope": "GWAS、PRS、QTL 与孟德尔随机化的质控、建模与结果解释",
+  "intake_fields": [
+    {
+      "name": "data_access",
+      "values": "开放 / 受控（dbGaP/EGA）/ 本地",
+      "blocking": true,
+      "why": "受控数据决定可执行边界与合规要求"
+    },
+    {
+      "name": "ancestry",
+      "values": "人群与 ancestry 组成",
+      "blocking": true,
+      "why": "分层会制造假阳性"
+    },
+    {
+      "name": "phenotype_type",
+      "values": "continuous / binary / survival",
+      "blocking": true,
+      "why": "决定模型与效应量解释"
+    },
+    {
+      "name": "imputation_and_ref",
+      "values": "参考面板与 imputation 状态",
+      "blocking": true,
+      "why": "影响变异覆盖与可比性"
+    }
+  ],
+  "pipelines": {
+    "gwas": {
+      "display_name": "GWAS",
+      "route_when": [
+        "gwas",
+        "association",
+        "regenie",
+        "saige"
+      ],
+      "preferred_workflow": "regenie / SAIGE / PLINK2",
+      "tools": [
+        "regenie",
+        "saige",
+        "plink2"
+      ],
+      "local_runner": null,
+      "essential_questions": [
+        "ancestry 与协变量？",
+        "imputation 质量过滤？"
+      ],
+      "local_outputs": [
+        "sumstats.tsv",
+        "qq/manhattan"
+      ]
+    },
+    "prs": {
+      "display_name": "多基因风险评分",
+      "route_when": [
+        "prs",
+        "polygenic",
+        "ldpred"
+      ],
+      "preferred_workflow": "PRS-CS / LDpred2",
+      "tools": [
+        "prscs",
+        "ldpred2"
+      ],
+      "local_runner": null,
+      "essential_questions": [
+        "目标人群 ancestry？",
+        "是否做外部验证？"
+      ],
+      "local_outputs": [
+        "prs.tsv"
+      ]
+    },
+    "qtl_mr": {
+      "display_name": "QTL / 孟德尔随机化",
+      "route_when": [
+        "qtl",
+        "eQTL",
+        "mendelian_randomization"
+      ],
+      "preferred_workflow": "QTLtools / TwoSampleMR",
+      "tools": [
+        "qtltools",
+        "twosamplemr"
+      ],
+      "local_runner": null,
+      "essential_questions": [
+        "工具变量假设是否成立？",
+        "水平多效性检验？"
+      ],
+      "local_outputs": [
+        "mr_results.tsv"
+      ]
+    }
+  },
+  "resources": {
+    "reference_panel": {
+      "kind": "database",
+      "root_env": "STATGEN_REF_PANEL",
+      "expected_files": [
+        "1000G/HRC 参考"
+      ],
+      "required_for": [
+        "imputation",
+        "prs"
+      ],
+      "notes": "ancestry 匹配"
+    },
+    "ld_scores": {
+      "kind": "database",
+      "root_env": "STATGEN_LDSCORE",
+      "expected_files": [
+        "eur.l2.ldscore.gz"
+      ],
+      "required_for": [
+        "prs"
+      ],
+      "notes": "与 ancestry/build 匹配"
+    },
+    "ancestry_reference": {
+      "kind": "database",
+      "root_env": "STATGEN_ANCESTRY",
+      "expected_files": [
+        "pca_loadings"
+      ],
+      "required_for": [
+        "gwas"
+      ],
+      "notes": "PCA 投影"
+    }
+  },
+  "qc_metrics": [
+    {
+      "name": "hwe",
+      "rule": "p<1e-6 的变异剔除（视设计）",
+      "source": "plink2",
+      "blocking": true
+    },
+    {
+      "name": "maf",
+      "rule": "按样本量设阈值",
+      "source": "plink2",
+      "blocking": true
+    },
+    {
+      "name": "missingness",
+      "rule": "变异/样本 call rate 达标",
+      "source": "plink2",
+      "blocking": true
+    },
+    {
+      "name": "ancestry_pca",
+      "rule": "PCA 离群与分层检查",
+      "source": "plink2/regenie",
+      "blocking": true
+    },
+    {
+      "name": "lambda_gc",
+      "rule": "接近 1；偏离需解释（分层/富集）",
+      "source": "sumstats",
+      "blocking": true
+    },
+    {
+      "name": "relatedness",
+      "rule": "近亲样本处理策略明确",
+      "source": "king",
+      "blocking": false
+    }
+  ],
+  "compliance": [
+    "受控访问（dbGaP/EGA）与隐私是硬边界",
+    "个体级基因型数据不得外传/上云",
+    "结果再识别风险评估"
+  ],
+  "handoff": [
+    "功能验证",
+    "clinical translation（需独立验证与监管路径）"
+  ]
+}

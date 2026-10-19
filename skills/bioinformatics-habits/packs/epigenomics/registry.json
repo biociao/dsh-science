@@ -1,0 +1,226 @@
+{
+  "schema_version": "0.1.0",
+  "pack": "epigenomics",
+  "display_name": "表观组",
+  "maturity": "execution",
+  "scope": "ATAC-seq、ChIP-seq、CUT&RUN、CUT&Tag 与 DNA 甲基化的 QC、peak 与差异分析",
+  "intake_fields": [
+    {
+      "name": "assay",
+      "values": "atacseq / chipseq / cutandrun / cutandtag / methylation",
+      "blocking": true,
+      "why": "决定 peak 模式、对照与 QC 指标"
+    },
+    {
+      "name": "controls",
+      "values": "input / IgG / 无",
+      "blocking": true,
+      "why": "无对照时 peak 假阳性率显著升高"
+    },
+    {
+      "name": "peak_mode",
+      "values": "narrow / broad",
+      "blocking": true,
+      "why": "TF vs 组蛋白修饰的 peak 形状不同"
+    },
+    {
+      "name": "spike_in",
+      "values": "有 / 无",
+      "blocking": false,
+      "why": "跨样本定量比较需要 spike-in 或等效归一"
+    }
+  ],
+  "pipelines": {
+    "atac": {
+      "display_name": "ATAC-seq QC/peaks",
+      "route_when": [
+        "atac",
+        "accessibility"
+      ],
+      "preferred_workflow": "bowtie2 + MACS2",
+      "tools": [
+        "bowtie2",
+        "samtools",
+        "macs2",
+        "deeptools"
+      ],
+      "local_runner": "run_atacseq_peaks_qc.py",
+      "essential_questions": [
+        "是否有生物学重复？",
+        "blacklist 与 TSS 是否按 build 提供？"
+      ],
+      "local_outputs": [
+        "peaks/*.narrowPeak",
+        "qc/atacseq_qc_summary.json"
+      ]
+    },
+    "chip_cutrun": {
+      "display_name": "ChIP/CUT&RUN/CUT&Tag QC/peaks",
+      "route_when": [
+        "chipseq",
+        "cutandrun",
+        "cutandtag",
+        "peak_calling"
+      ],
+      "preferred_workflow": "bowtie2 + MACS2",
+      "tools": [
+        "bowtie2",
+        "samtools",
+        "macs2",
+        "bedtools"
+      ],
+      "local_runner": "run_chip_cutrun_peaks_qc.py",
+      "essential_questions": [
+        "target 是 TF 还是组蛋白修饰？",
+        "是否有 input/IgG 对照？"
+      ],
+      "local_outputs": [
+        "peaks/*.narrowPeak",
+        "qc/chip_cutrun_qc_summary.json"
+      ]
+    },
+    "methylation": {
+      "display_name": "DNA 甲基化",
+      "route_when": [
+        "methylation",
+        "bisulfite",
+        "em-seq"
+      ],
+      "preferred_workflow": "Bismark / bwa-meth + methylKit",
+      "tools": [
+        "bismark",
+        "samtools",
+        "methylkit"
+      ],
+      "local_runner": null,
+      "essential_questions": [
+        "bisulfite 还是 EM-seq？",
+        "转化率对照结果？"
+      ],
+      "local_outputs": [
+        "methylation/*.bedGraph"
+      ]
+    },
+    "differential": {
+      "display_name": "差异可及性/结合",
+      "route_when": [
+        "differential_accessibility",
+        "diffbind"
+      ],
+      "preferred_workflow": "DiffBind / DESeq2",
+      "tools": [
+        "rscript",
+        "diffbind"
+      ],
+      "local_runner": null,
+      "essential_questions": [
+        "consensus peak 如何定义？",
+        "重复数与离散度？"
+      ],
+      "local_outputs": [
+        "diff/*.tsv"
+      ]
+    }
+  },
+  "resources": {
+    "bowtie2_index": {
+      "kind": "reference",
+      "root_env": "EPI_BOWTIE2",
+      "expected_files": [
+        "genome.1.bt2",
+        "genome.2.bt2"
+      ],
+      "required_for": [
+        "atac",
+        "chip"
+      ],
+      "notes": "与 build 匹配"
+    },
+    "blacklist": {
+      "kind": "annotation",
+      "root_env": "EPI_BLACKLIST",
+      "expected_files": [
+        "blacklist.bed"
+      ],
+      "required_for": [
+        "atac",
+        "chip"
+      ],
+      "notes": "ENCODE 黑名单按 build"
+    },
+    "tss_annotation": {
+      "kind": "annotation",
+      "root_env": "EPI_TSS",
+      "expected_files": [
+        "tss.bed"
+      ],
+      "required_for": [
+        "atac"
+      ],
+      "notes": "可选但强烈建议"
+    },
+    "spikein_reference": {
+      "kind": "reference",
+      "root_env": "EPI_SPIKEIN",
+      "expected_files": [
+        "spikein.fa"
+      ],
+      "required_for": [
+        "quantitative_comparison"
+      ],
+      "notes": "无 spike-in 时不能做绝对比较"
+    }
+  },
+  "qc_metrics": [
+    {
+      "name": "frip",
+      "rule": "ATAC >0.3 常见；ChIP 视 target",
+      "source": "bedtools/samtools",
+      "blocking": true
+    },
+    {
+      "name": "tss_enrichment",
+      "rule": "ATAC ≥2（视数据质量）",
+      "source": "deeptools",
+      "blocking": true
+    },
+    {
+      "name": "insert_size",
+      "rule": "ATAC 呈核小体周期性",
+      "source": "picard/deeptools",
+      "blocking": false
+    },
+    {
+      "name": "library_complexity",
+      "rule": "NRF/PBC 不为低复杂度",
+      "source": "preseq",
+      "blocking": false
+    },
+    {
+      "name": "conversion_rate",
+      "rule": "甲基化：>99%（视方法）",
+      "source": "Bismark",
+      "blocking": true
+    },
+    {
+      "name": "replicate_concordance",
+      "rule": "重复间 peak 重叠/相关达标",
+      "source": "IDR/相关",
+      "blocking": true
+    },
+    {
+      "name": "blacklist_fraction",
+      "rule": "过滤前后统计，异常高提示问题",
+      "source": "bedtools",
+      "blocking": false
+    }
+  ],
+  "compliance": [
+    "人类表观数据的隐私边界",
+    "云上传需显式同意"
+  ],
+  "handoff": [
+    "motif/转录因子分析",
+    "multi-omics（表达联合）"
+  ]
+}
