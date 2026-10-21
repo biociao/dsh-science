@@ -18,6 +18,10 @@
   - `inputs / outputs`：输入/输出产物（字符串数组，如 `raw_reads.fastq`、`clean_reads.fastq`）
   - `tool`：软件/工具（如 `Phrap`、`GLIMMER 3 + tRNAscan-SE`）
   - `command`：命令或程序调用（可含占位符，便于复现）
+  - `progress`：**执行进度** —— `{done, total, unit}`（完成样本数/总数，自动折算百分比）或
+    `{percent}`（直接给百分比）；画布上按百分比**填充节点图形块**（裁剪进形状内部），
+    未记录进度的节点不填充（不会把"没数据"误读成 0%）。`progress` 是**语义字段**，
+    每次更新都会追加一个版本（谁在什么时候把进度从 30/120 推到 90/120 可回溯）。
   - `pos / size`：画布坐标与尺寸（**布局字段，不进版本**）
   - IO 传递：节点 A 的 `outputs` 与下游 B 的 `inputs` 同名时，A→B 的边自动携带该产物；
     画布节点显示 `⚙ 工具` 徽标，边无自定义标签时直接显示传递产物名，「数据流」页汇总
@@ -49,7 +53,7 @@
 | `roadmap_init` | 初始化路线图（已存在时幂等；`reset: true` 清空重建，历史保留）。 |
 | `roadmap_show` | 读全图（节点 + 关系 + 坐标）+ 图分析（环、关键路径、根/叶、深度、上下游邻居）；传 `node` 附该节点上下游闭包与版本概览。 |
 | `roadmap_node_add` | 新增节点（颜色/形状/泳道/策略/超参/测试/关联/坐标，新节点自动 `v1`）。 |
-| `roadmap_node_update` | 更新节点（patch）；`action: "remove"` 删除节点及其关系。 |
+| `roadmap_node_update` | 更新节点（patch，含 `progress` 进度；`null` 清除）；`action: "remove"` 删除节点及其关系。 |
 | `roadmap_node_history` | 节点版本历史；传 `from`/`to` 给出两版之间的字段级差异。 |
 | `roadmap_node_revert` | 回滚到历史版本（追加式，历史不删）。 |
 | `roadmap_link` | 维护关系边：`action: add/update/remove`，`type: serial/parallel/feedback/loop`。 |
@@ -94,9 +98,21 @@
 会话顶部的 **技术路线图** 视图（`conversation.view` 槽，与「会话」「轨迹」并列，排在「轨迹」之后；
 改客户端 bundle 后需重启 web 进程生效）：
 
+- **进度可视化（完成进度图）**：工具栏显示**总进度**条（全部"已知进度"节点的平均值 + 样本合计），
+  侧栏默认打开「进度」页：总体完成度大号百分比、按**泳道 / 类型**分组进度条、以及**逐步进度**
+  （点行直接定位到该节点）。画布上每个节点按自己的进度**从左向右填充**图形块（菱形/圆形等
+  形状用 clipPath 裁剪，填充始终贴合形状），右下角角标显示 `v版本 · 进度%`。
+  进度来源优先级：显式 `percent` > `done/total` 折算 > 状态推导（`done`=100%、`dropped`=0%）。
 - **跟随项目**：项目根 = 当前会话所属 Workspace 的目录（`useWorkspaces` → `sessionIds`），
   同一项目下的所有会话共用 `<项目根>/.dsh/roadmap.json`；输入框只读并显示「跟随项目」。
   会话还没有归属项目时（例如空白草稿）回落到手动根目录（上次使用 → 插件配置 `roadmapRoot`）。
+- **没有路线图就不显示这个标签页**：`conversation.view` 的 tab 列表由 `slots.entries()` **全局**生成
+  （shell 没有"按会话过滤"的钩子），因此本模块只在**当前项目存在 `.dsh/roadmap.json`** 时才把入口
+  注册进去，否则 `dispose` 掉 —— 标签页因此不出现。判定依据：当前会话所属 Workspace 的 `path`
+  （`workspaces.list` + `uiWorkspace.mainReference.sessionId`）→ 调 `/dsh-science/roadmap/show`
+  看 `initialized`。隐藏期间每 5s 轻量复查（本地 HTTP），所以 **AI 在会话里 `roadmap_init` 之后，
+  标签页最多 5s 内自动出现**，不需要刷新页面。宿主没有 `workspaces` 服务时 fail-open（照常显示，
+  避免把功能误藏起来）；欢迎页/未选会话时不显示。
 - **画布交互**：拖空白处平移、滚轮**以光标为锚点**缩放（HUD 显示百分比、`⤢` 适应窗口）；
   拖节点改位置；右下角手柄改节点尺寸。画布高度随窗口自适应（`clamp(520px, 68vh, 920px)`），
   首次载入与「自动布局」后**自动适应窗口**，打开即可看到整张图；「收起侧栏」可让画布占满宽度，

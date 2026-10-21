@@ -46,6 +46,8 @@ export function apply(ctx, config) {
           await call('roadmap_link', { root: cwd, from: 'n1', to: 'n2', type: 'serial' });
           await call('roadmap_show', { root: cwd, node: 'n1' });
           await call('roadmap_node_update', { root: cwd, node: 'n1', status: 'done', params: { q20: 0.95 }, note: 'toolruntime' });
+          // 进度：对象形态（done/total）经真实 ToolRuntime 的参数 schema 校验
+          await call('roadmap_node_update', { root: cwd, node: 'n1', progress: { done: 30, total: 120, unit: '样本' }, note: 'progress' });
           await call('roadmap_node_history', { root: cwd, node: 'n1', from: 1, to: 2 });
           await call('roadmap_node_revert', { root: cwd, node: 'n1', version: 1, note: 'rollback' });
           await call('roadmap_layout', { root: cwd, mode: 'auto', overwrite: true });

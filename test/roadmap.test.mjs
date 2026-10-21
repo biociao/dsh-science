@@ -447,6 +447,9 @@ console.log("\n== 11. roadmap-ui：REST 路由 / 处理器 / AI 生成 ==");
   ok("桌面壳转发：缺 Origin + 回环 Host → 200", desktop.status === 200);
   const unknown = await call("POST", "/dsh-science/roadmap/nope", {});
   ok("未知方法 404", unknown.status === 404 && JSON.parse(unknown.body).ok === false);
+  // 浏览器/桌面壳可能给请求追加 ?token=… ：必须剥掉 query 再取方法名，否则所有方法都 404
+  const withQuery = await call("POST", "/dsh-science/roadmap/config?token=abc123", {});
+  ok("带 query 的请求仍能解析方法名（回归：未知方法 config?token=）", withQuery.status === 200 && JSON.parse(withQuery.body).ok === true);
 
   const cfg = JSON.parse((await call("POST", "/dsh-science/roadmap/config", {})).body);
   ok("config：默认根 + 枚举 + AI 模型", cfg.ok && cfg.defaultRoot === uRoot && cfg.shapes.length === 7 && cfg.ai.provider === "p-ai");
@@ -521,19 +524,79 @@ console.log("\n== 12. client bundle：加载 / 插件契约 / slot 注册 / 方�
   const mod = loaded.factory(req);
   ok("bundle 导出插件契约（name/inject/apply）", mod?.name === "remote-hosts-ui" && mod.inject?.includes("slots") && typeof mod.apply === "function");
 
-  const sections = [];
-  const views = [];
-  const slots = {
-    inject: (name, fn) => { slots._injected = name; fn(); },
-    register: (meta, render) => { (meta.name === "conversation.view" ? views : sections).push({ meta, render }); },
+  const mkSlots = () => {
+    const sections = [];
+    const views = [];
+    const slots = {
+      inject: (name, fn) => { slots._injected = name; fn(); return () => {}; },
+      register: (meta, render) => {
+        const row = { meta, render };
+        if (meta.name === "conversation.view") {
+          views.push(row);
+          return () => { const i = views.indexOf(row); if (i >= 0) views.splice(i, 1); };
+        }
+        sections.push(row);
+        return () => {};
+      },
+    };
+    return { slots, sections, views };
   };
-  mod.apply({ get: (k) => (k === "slots" ? slots : undefined), on: () => () => {} });
-  const ids = sections.map((s) => s.meta.id).sort();
-  ok("设置页只剩 2 个：远程主机 / 科研工作台", sections.length === 2 && JSON.stringify(ids) === JSON.stringify(["remote-hosts", "workbench"]));
-  ok("技术路线图注册为顶层会话视图（conversation.view，与「会话」「轨迹」并列）", views.length === 1 && views[0].meta.id === "roadmap" && views[0].meta.name === "conversation.view");
-  const rdView = views[0];
-  ok("技术路线图排「轨迹」之后（order=20）+ 中文标签 + 可直接渲染", rdView.meta.order === 20 && rdView.meta.label === "技术路线图" && typeof rdView.render === "function");
-  ok("技术路线图不再出现在设置页", !ids.includes("roadmap"));
+  const fakeWorkspaces = (path) => ({
+    list: {
+      getSnapshot: () => ({ phase: "ready", items: path ? [{ workspaceId: "w1", path, sessionIds: ["s1"] }] : [] }),
+      subscribe: () => () => {},
+    },
+  });
+  const mkCtx = (slots, opts = {}) => ({
+    get: (k) => {
+      if (k === "slots") return slots;
+      if (k === "workspaces") return opts.workspaces;
+      if (k === "uiWorkspace") return opts.workspaces ? { mainReference: { sessionId: "s1" } } : undefined;
+      return undefined;
+    },
+    on: () => () => {},
+  });
+
+  // (a) 宿主没有 workspaces 服务（旧版/受限）→ fail-open：入口照常注册，不误隐藏
+  {
+    const g = mkSlots();
+    mod.apply(mkCtx(g.slots));
+    ok("设置页只剩 2 个：远程主机 / 科研工作台", g.sections.length === 2 && JSON.stringify(g.sections.map((s) => s.meta.id).sort()) === JSON.stringify(["remote-hosts", "workbench"]));
+    ok("无 workspaces 服务时 fail-open：仍注册 conversation.view", g.views.length === 1 && g.views[0].meta.id === "roadmap");
+    ok("技术路线图不再出现在设置页", !g.sections.some((s) => s.meta.id === "roadmap"));
+  }
+
+  const realFetch = globalThis.fetch;
+  const stubFetch = (payload) => { globalThis.fetch = async () => ({ json: async () => payload }); };
+  try {
+    // (b) 当前项目已有路线图 → 注册入口（与「会话」「轨迹」并列）
+    {
+      const g = mkSlots();
+      stubFetch({ ok: true, initialized: true });
+      mod.apply(mkCtx(g.slots, { workspaces: fakeWorkspaces("/proj/has-roadmap") }));
+      await new Promise((r) => setTimeout(r, 0));
+      const v = g.views[0];
+      ok("项目有路线图 → 注册 conversation.view（order=20 / 中文标签 / 可渲染）", g.views.length === 1 && v.meta.id === "roadmap" && v.meta.name === "conversation.view" && v.meta.order === 20 && v.meta.label === "技术路线图" && typeof v.render === "function");
+    }
+    // (c) 当前项目没有路线图 → 不注册（标签页隐藏）
+    {
+      const g = mkSlots();
+      stubFetch({ ok: true, initialized: false });
+      mod.apply(mkCtx(g.slots, { workspaces: fakeWorkspaces("/proj/no-roadmap") }));
+      await new Promise((r) => setTimeout(r, 0));
+      ok("项目没有路线图 → 不注册 conversation.view（标签页因此隐藏）", g.views.length === 0);
+    }
+    // (d) 欢迎页：有服务但没有当前项目 → 不注册
+    {
+      const g = mkSlots();
+      stubFetch({ ok: true, initialized: true });
+      mod.apply(mkCtx(g.slots, { workspaces: fakeWorkspaces("") }));
+      await new Promise((r) => setTimeout(r, 0));
+      ok("没有当前项目（欢迎页）→ 不注册", g.views.length === 0);
+    }
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 
   // 客户端调用的每个 REST 方法都必须真实存在（防止改名后静默 404）
   const called = new Set([...bundleSrc.matchAll(/rdApi\(\s*"([a-z-]+)"/g)].map((m) => m[1]));
@@ -592,11 +655,15 @@ console.log("\n== 13. 画布组件渲染（hooks 模拟器）==");
   nodes[0].outputs = ["a.fastq"];
   nodes[0].tool = "fastp";
   nodes[0].command = "fastp -i raw.fq -o a.fastq -q 20";
-  nodes[1].inputs = ["a.fastq"];
-  nodes[1].outputs = ["b.bam"];
+  nodes[1].inputs = ["a.fastq"];  nodes[1].outputs = ["b.bam"];
   nodes[1].tool = "bwa";
   nodes[2].inputs = ["b.bam"];
   nodes[2].tool = "samtools";
+  // 进度：n1 用 done/total（25%）、n2 用显式 percent（60%）、n4 状态 done 推导 100%
+  nodes[0].progress = { done: 30, total: 120, unit: "样本" };
+  nodes[0].percent = 25;
+  nodes[1].progress = { percent: 60 };
+  nodes[1].percent = 60;
   const edges = [
     { id: "e1", from: "n1", to: "n2", type: "serial", label: "质控通过" },
     { id: "e2", from: "n2", to: "n3", type: "parallel", label: "" },
@@ -632,7 +699,7 @@ console.log("\n== 13. 画布组件渲染（hooks 模拟器）==");
   const render = (patch, props) => {
     cursor = 0;
     // 文档化的 hook 顺序：[cfg, root, rm, err, okMsg, busy, tab, sel, selEdge, linkFrom, linkType, view, positions, draft, versions, aiGoal, aiSpec, aiPrompt, aiMode, panning, sizes, fitTick]
-    Object.assign(states, { 0: { ok: true, ai: {}, layoutStyles: [{ id: "compact", label: "紧凑蛇形" }, { id: "horizontal", label: "横向泳道" }, { id: "vertical", label: "纵向阶段" }] }, 1: "/proj", 2: roadmap, 3: "", 4: "", 5: "", 6: "props", 7: [], 8: "", 9: "", 10: "serial", 11: { x: 0, y: 0, k: 1 }, 12: Object.fromEntries(nodes.map((n) => [n.id, n.pos])), 13: draft, 14: null, 15: "耐药分型", 16: "", 17: "", 18: "merge", 19: false, 20: {}, 21: 0 }, patch);
+    Object.assign(states, { 0: { ok: true, ai: {}, layoutStyles: [{ id: "compact", label: "紧凑蛇形" }, { id: "horizontal", label: "横向泳道" }, { id: "vertical", label: "纵向阶段" }] }, 1: "/proj", 2: roadmap, 3: "", 4: "", 5: "", 6: "prog", 7: [], 8: "", 9: "", 10: "serial", 11: { x: 0, y: 0, k: 1 }, 12: Object.fromEntries(nodes.map((n) => [n.id, n.pos])), 13: draft, 14: null, 15: "耐药分型", 16: "", 17: "", 18: "merge", 19: false, 20: {}, 21: 0 }, patch);
     return RdPage(props);
   };
   const walk = (el, fn) => {
@@ -649,7 +716,7 @@ console.log("\n== 13. 画布组件渲染（hooks 模拟器）==");
       (t) => { let hit = 0; walk(t, (el) => { if (typeof el.children?.[0] === "string" && el.children[0].includes("回滚到此版")) hit++ }); return hit === 1 }],
     ["AI 面板（含提示词与历史）", { 6: "ai", 17: "PROMPT" }, (t) => { let n = 0; walk(t, (el) => { if (el.type === "textarea" && el.props.value === "PROMPT") n++ }); return n === 1 }],
     ["多选（无单节点草稿）", { 7: ["n1", "n2"], 13: null }, (t) => count(t, "svg") === 1],
-    ["选中关系边", { 7: [], 8: "e1" }, (t) => { let n = 0; walk(t, (el) => { if (typeof el.children?.[0] === "string" && el.children[0] === "删除关系") n++ }); return n === 1 }],
+    ["选中关系边", { 7: [], 8: "e1", 6: "props" }, (t) => { let n = 0; walk(t, (el) => { if (typeof el.children?.[0] === "string" && el.children[0] === "删除关系") n++ }); return n === 1 }],
     ["数据流页（IO 传递与工具）", { 6: "io" }, (t) => {
       let artifacts = 0, tools = 0;
       walk(t, (el) => {
@@ -659,7 +726,7 @@ console.log("\n== 13. 画布组件渲染（hooks 模拟器）==");
       });
       return artifacts >= 1 && tools >= 1;
     }],
-    ["属性页 IO/工具/命令字段", { 7: ["n1"] }, (t) => {
+    ["属性页 IO/工具/命令字段", { 7: ["n1"], 6: "props" }, (t) => {
       let fields = 0;
       walk(t, (el) => {
         const ph = typeof el.props.placeholder === "string" ? el.props.placeholder : "";
@@ -687,6 +754,34 @@ console.log("\n== 13. 画布组件渲染（hooks 模拟器）==");
   const tree = render({ 7: [] });
   ok("7 种形状各渲染出对应图元", count(tree, "polygon") >= 2 && count(tree, "ellipse") >= 1 && count(tree, "rect") >= 5, `rect=${count(tree, "rect")} polygon=${count(tree, "polygon")} ellipse=${count(tree, "ellipse")}`);
   ok("4 类关系边都渲染（含自环与悬空边防御）", count(tree, "path") >= 5, "path=" + count(tree, "path"));
+  // 进度：每节点一份 clipPath（按形状裁剪），有进度的节点画出填充矩形
+  ok("每个节点一份进度裁剪路径（进度填充裁进形状内部）", count(tree, "clipPath") === nodes.length, "clip=" + count(tree, "clipPath") + " nodes=" + nodes.length);
+  (() => {
+    let fills = 0;
+    walk(tree, (el) => { if (el.type === "rect" && el.props.fill === "#fff" && el.props.opacity === 0.3) fills++ });
+    ok("有进度的节点画出进度填充（n1 25% / n2 60% / n4,n7 done→100%；dropped=0% 不画）", fills === 4, "fills=" + fills);
+  })();
+  (() => {
+    let w = null;
+    walk(tree, (el) => { if (w === null && el.type === "rect" && el.props.fill === "#fff" && el.props.opacity === 0.3) w = el.props.width });
+    ok("填充宽度按百分比计算（200px 节点 25% → 50px）", Math.abs(Number(w) - 50) < 0.51, "w=" + w);
+  })();
+  ok("节点角标显示版本 + 百分比", (() => {
+    let hit = 0;
+    walk(tree, (el) => { if (el.type === "text" && /^v\d+ · \d+%$/.test(String(el.children?.[0] ?? ""))) hit++ });
+    return hit >= 2;
+  })());
+  // 进度面板：默认标签页 + 总进度条 + 泳道/逐步行
+  const progTabBtn = (() => { let hit = null; walk(tree, (el) => { if (!hit && el.type === "button" && String(el.children?.[0] ?? "") === "进度") hit = el }); return hit })();
+  ok("进度面板标签存在且默认选中", Boolean(progTabBtn) && String(progTabBtn.props.className).includes("rd-tab-on"));
+  ok("总进度条渲染在工具栏（overall 57% = 已知进度节点均值）", (() => {
+    let bar = null;
+    walk(tree, (el) => { if (!bar && el.type === "div" && String(el.props.className || "").includes("rd-overall")) bar = el });
+    if (!bar) return false;
+    let txt = "";
+    walk(bar, (el) => { if (el.type === "span" && /%/.test(String(el.children?.[0] ?? ""))) txt = String(el.children[0]) });
+    return txt.startsWith("57");
+  })());
   const styleSel = (() => { let hit = null; walk(tree, (el) => { if (!hit && el.type === "select" && String(el.props.title || "").startsWith("自动布局样式")) hit = el }); return hit })();
   const styleOpts = styleSel ? styleSel.children.flat(Infinity).filter((el) => el && el.type === "option") : [];
   ok("布局样式下拉：三种格式可切换", styleOpts.length === 3 && styleOpts.map((o) => o.props.value).join(",") === "compact,horizontal,vertical");
@@ -862,6 +957,60 @@ console.log("\n== 14. 画布交互：多选与整体拖动 ==");
   styleSelect.props.onChange({ target: { value: "horizontal" } });
   ok("切换样式立即重排：样式状态 + 坐标同步变化", states[25] === "horizontal" && states[12].n2.x === 310 && states[12].n2.y === 60 && states[12].n3.x === 560);
   ok("切换样式：无报错", states[3] === "");
+}
+
+// ── 15. 完成进度：样本数/百分比 → 版本 → 图形填充 → 汇总 ────────────────
+console.log("\n== 15. 完成进度（progress）==");
+{
+  const pRoot = path.join(work, "progress-proj");
+  await fsp.mkdir(pRoot, { recursive: true });
+  await tools.roadmap_init.execute({ root: pRoot, title: "进度" }, exec);
+
+  // 样本数 → 自动折算百分比
+  const a = await tools.roadmap_node_add.execute({
+    root: pRoot, title: "建库", status: "running", track: "湿实验",
+    progress: { done: 30, total: 120, unit: "样本", note: "第一批" },
+  }, exec);
+  ok("新增节点带进度：done/total 折算 25%", a.node.progress.percent === 25 && a.node.progress.unit === "样本" && a.node.progress.note === "第一批");
+  const b = await tools.roadmap_node_add.execute({ root: pRoot, title: "测序", track: "湿实验", progress: 60 }, exec);
+  ok("新增节点带进度：数字理解为百分比", b.node.progress.percent === 60);
+  const c = await tools.roadmap_node_add.execute({ root: pRoot, title: "分析", track: "干实验", status: "done" }, exec);
+  const d = await tools.roadmap_node_add.execute({ root: pRoot, title: "废弃", track: "干实验", status: "dropped" }, exec);
+  const e = await tools.roadmap_node_add.execute({ root: pRoot, title: "未开始", track: "干实验" }, exec);
+
+  const g = await tools.roadmap_show.execute({ root: pRoot }, exec);
+  const byId = Object.fromEntries(g.roadmap.nodes.map((n) => [n.id, n]));
+  ok("状态推导：done→100% / dropped→0% / planned→null（未记录）",
+    byId[c.node.id].percent === 100 && byId[d.node.id].percent === 0 && byId[e.node.id].percent === null);
+  ok("节点带 progressText（样本数可读）", byId[a.node.id].progressText === "30/120 样本（25%）");
+
+  const pr = g.roadmap.progress;
+  ok("总进度 = 已知进度节点均值（(25+60+100+0)/4=46）", pr.overall === 46 && pr.known === 4 && pr.unknown === 1, `overall=${pr.overall} known=${pr.known}`);
+  ok("样本合计（30/120）", pr.samples.done === 30 && pr.samples.total === 120 && pr.samples.percent === 25);
+  ok("分泳道汇总", pr.byTrack["湿实验"].percent === 43 && pr.byTrack["湿实验"].nodes === 2, JSON.stringify(pr.byTrack["湿实验"]));
+  ok("分类型汇总含 step", pr.byKind.step.nodes === 5);
+
+  // 进度变更 → 新版本（结合状态更新机制）
+  const up = await tools.roadmap_node_update.execute({
+    root: pRoot, node: a.node.id, progress: { done: 90, total: 120, unit: "样本" }, note: "第二批完成",
+  }, exec);
+  ok("更新进度追加版本且 changed 含 progress", up.node.version === 2 && up.version.changed.includes("progress") && up.node.progress.percent === 75);
+  const hist = await tools.roadmap_node_history.execute({ root: pRoot, node: a.node.id, from: 1, to: 2 }, exec);
+  ok("版本 diff 记录进度前后值", hist.diff.changed.includes("progress") && hist.diff.fields.progress.from.done === 30 && hist.diff.fields.progress.to.done === 90);
+  const back = await tools.roadmap_node_revert.execute({ root: pRoot, node: a.node.id, version: 1 }, exec);
+  ok("回滚到 v1 恢复旧进度（30/120 → 25%）", back.node.progress.done === 30 && back.node.progress.percent === 25);
+
+  // 校验
+  await expectThrow(() => tools.roadmap_node_update.execute({ root: pRoot, node: a.node.id, progress: { done: 9, total: 4 } }, exec), "ERR_VALIDATION", "done > total 被拒");
+  await expectThrow(() => tools.roadmap_node_update.execute({ root: pRoot, node: a.node.id, progress: { total: 0 } }, exec), "ERR_VALIDATION", "total=0 被拒");
+  await expectThrow(() => tools.roadmap_node_update.execute({ root: pRoot, node: a.node.id, progress: { note: "空的" } }, exec), "ERR_VALIDATION", "空 progress 被拒");
+  await expectThrow(() => tools.roadmap_node_add.execute({ root: pRoot, title: "x", progress: -5 }, exec), "ERR_VALIDATION", "负数进度被拒");
+  const clear = await tools.roadmap_node_update.execute({ root: pRoot, node: a.node.id, progress: null }, exec);
+  ok("progress=null 清除进度", clear.node.progress === null);
+
+  // 渲染：Mermaid 带进度
+  const mm = await tools.roadmap_render.execute({ root: pRoot, format: "mermaid" }, exec);
+  ok("Mermaid 节点标签包含进度", mm.text.includes("进度 60%") || mm.text.includes("进度 60"));
 }
 
 // ── 收尾 ────────────────────────────────────────────────────────────

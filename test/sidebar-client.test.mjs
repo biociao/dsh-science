@@ -135,6 +135,9 @@ ok("bundle 含原生行锚点（data-row-key workspace:）", bundle.includes('[d
 ok("bundle 含原生「…」菜单增强锚点", bundle.includes("data-dshsci-native-item") && bundle.includes("sbMenuModel"));
 ok("悬停卡只做状态展示（不含操作按钮实现）", bundle.includes("dshsci-hover-stats") && !bundle.includes("dshsci-hover-actions") && !bundle.includes("dshsci-mini"));
 ok("bundle 含三段式 section（置顶与最近）", bundle.includes("dshsci-section-head") && bundle.includes("dshsci-recent-row") && bundle.includes("data-dshsci-section"));
+// 回归护栏：中段滚动容器的 overflow 必须带 !important，否则会被原生 regionArea 的
+// overflow:hidden 覆盖，导致侧栏无法用鼠标滚轮滚动、下方项目被裁切。
+ok("中段滚动容器 overflow 强制 auto（!important）", bundle.includes('overflow-y:auto!important') && bundle.includes('data-dshsci-scroll="1"'));
 ok("最近会话经 uiWorkspace.openSession 打开", bundle.includes("uiWorkspace") && bundle.includes("openSession"));
 const pkgJson = JSON.parse(readFileSync(path.join(pkg, "package.json"), "utf8"));
 ok("package.json exports[\"./client\"] 指向 bundle", pkgJson?.exports?.["./client"] === "./client/remote-hosts-ui/lib/client.js");

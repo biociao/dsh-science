@@ -68,6 +68,18 @@ const rdCSS = `
 .rd-empty{font-size:12px;color:var(--dsw-alias-label-tertiary);padding:8px 0}
 .rd-pre{font-size:11px;background:var(--dsw-alias-bg-module-platform);border-radius:8px;padding:8px;font-family:ui-monospace,Menlo,monospace;white-space:pre-wrap;word-break:break-all;max-height:220px;overflow:auto}
 .rd-count{font-size:11px;padding:0 8px;border-radius:99px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary)}
+.rd-overall{display:flex;align-items:center;gap:8px;min-width:190px}
+.rd-bar{position:relative;flex:1;height:8px;min-width:70px;border-radius:99px;background:var(--dsw-alias-bg-layer-2);overflow:hidden}
+.rd-bar-fill{position:absolute;left:0;top:0;bottom:0;border-radius:99px;background:var(--dsw-alias-brand-primary);transition:width .25s ease}
+.rd-bar-fill.rd-bar-done{background:var(--dsw-alias-state-success-primary)}
+.rd-progress-big{font-size:24px;font-weight:600;line-height:30px}
+.rd-prog-row{display:flex;flex-direction:column;gap:3px;margin-top:7px}
+.rd-prog-head{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--dsw-alias-label-secondary)}
+.rd-prog-node{display:flex;align-items:center;gap:8px;padding:2px 0;cursor:pointer;border-radius:6px}
+.rd-prog-node:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.rd-prog-node .rd-bar{min-width:56px;height:6px}
+.rd-prog-name{font-size:11px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rd-prog-pct{font-size:11px;color:var(--dsw-alias-label-secondary);min-width:34px;text-align:right}
 `
 
 const rdApi = (method, body) =>
@@ -99,6 +111,72 @@ const rdRectOf = (n, pos) => {
   return { x: pos.x, y: pos.y, w: s.w, h: s.h, cx: pos.x + s.w / 2, cy: pos.y + s.h / 2 }
 }
 const rdFillOf = (n) => n.color || rdStatusColor[n.status] || "#94a3b8"
+
+// 完成进度：显式 percent > done/total > 状态推导（done=100 / dropped=0 / 其余未知=null）。
+// 优先用宿主算好的 n.percent；旧宿主没有该字段时在这里兜底推导，保证画布行为一致。
+function rdPercentOf(n) {
+  if (!n) return null
+  if (typeof n.percent === "number" && Number.isFinite(n.percent)) return Math.max(0, Math.min(100, Math.round(n.percent)))
+  const p = n.progress
+  if (p && typeof p === "object") {
+    if (Number.isFinite(Number(p.percent))) return Math.max(0, Math.min(100, Math.round(Number(p.percent))))
+    if (Number.isFinite(Number(p.done)) && Number.isFinite(Number(p.total)) && Number(p.total) > 0) {
+      return Math.max(0, Math.min(100, Math.round((Number(p.done) / Number(p.total)) * 100)))
+    }
+  }
+  if (n.status === "done") return 100
+  if (n.status === "dropped") return 0
+  return null
+}
+
+function rdProgressTextOf(n) {
+  const p = n && n.progress
+  const pct = rdPercentOf(n)
+  if (p && Number.isFinite(Number(p.done)) && Number.isFinite(Number(p.total))) {
+    return `${p.done}/${p.total}${p.unit ? " " + p.unit : ""}${pct !== null ? "（" + pct + "%）" : ""}`
+  }
+  return pct !== null ? pct + "%" : ""
+}
+
+// 汇总进度（总进度 / 分泳道 / 分类型 / 样本合计）——客户端自算，旧宿主也能显示
+function rdProgressOf(rm) {
+  const nodes = (rm && rm.nodes) || []
+  const known = []
+  const samples = { done: 0, total: 0 }
+  const bag = () => ({ nodes: 0, known: 0, sum: 0, percent: null, done: 0, total: 0 })
+  const byTrack = {}
+  const byKind = {}
+  const bump = (m, key, n, pct) => {
+    const k = key || "（未分类）"
+    const slot = m[k] || (m[k] = bag())
+    slot.nodes += 1
+    if (pct !== null) { slot.known += 1; slot.sum += pct }
+    const p = n.progress
+    if (p && Number.isFinite(Number(p.done))) slot.done += Number(p.done)
+    if (p && Number.isFinite(Number(p.total))) slot.total += Number(p.total)
+  }
+  for (const n of nodes) {
+    const pct = rdPercentOf(n)
+    if (pct !== null) known.push(pct)
+    const p = n.progress
+    if (p && Number.isFinite(Number(p.done))) samples.done += Number(p.done)
+    if (p && Number.isFinite(Number(p.total))) samples.total += Number(p.total)
+    bump(byTrack, n.track, n, pct)
+    bump(byKind, n.kind, n, pct)
+  }
+  for (const m of [byTrack, byKind]) for (const k of Object.keys(m)) m[k].percent = m[k].known ? Math.round(m[k].sum / m[k].known) : null
+  const doneNodes = nodes.filter((n) => n.status === "done").length
+  return {
+    overall: known.length ? Math.round(known.reduce((a, b) => a + b, 0) / known.length) : null,
+    known: known.length,
+    unknown: nodes.length - known.length,
+    nodes: nodes.length,
+    doneNodes,
+    samples: { done: samples.done, total: samples.total, percent: samples.total > 0 ? Math.round((samples.done / samples.total) * 100) : null },
+    byTrack,
+    byKind,
+  }
+}
 
 // 从矩形 a 的中心指向 b 的中心，取与 a 边框的交点作为连线锚点
 function rdAnchor(a, b) {
@@ -283,7 +361,7 @@ function RdPage(props) {
   const [err, setErr] = React.useState("")
   const [okMsg, setOkMsg] = React.useState("")
   const [busy, setBusy] = React.useState("")
-  const [tab, setTab] = React.useState("props")
+  const [tab, setTab] = React.useState("prog")
   const [sel, setSel] = React.useState([])
   const [selEdge, setSelEdge] = React.useState("")
   const [linkFrom, setLinkFrom] = React.useState("")
@@ -511,6 +589,10 @@ function RdPage(props) {
       outputs: (selNode.outputs || []).join("\n"),
       tool: selNode.tool || "",
       command: selNode.command || "",
+      // 进度输入（保存走「样本数」按钮；百分比按钮即时生效）
+      progDone: selNode.progress && Number.isFinite(Number(selNode.progress.done)) ? String(selNode.progress.done) : "",
+      progTotal: selNode.progress && Number.isFinite(Number(selNode.progress.total)) ? String(selNode.progress.total) : "",
+      progUnit: (selNode.progress && selNode.progress.unit) || "样本",
       note: "",
     })
     setVersions(null)
@@ -808,12 +890,22 @@ function RdPage(props) {
   const selEdgeObj = edges.find((e) => e.id === selEdge) || null
   const stats = (rm && rm.stats) || null
   const io = (rm && rm.io) || null
+  const prog = rm ? rdProgressOf(rm) : null
   const transferByEdge = new Map(((io && io.transfers) || []).map((t) => [t.edge, t.artifacts]))
 
   const toolbar = h("div", { className: "rd-head" },
     h("span", { className: "rd-title" }, "技术路线图"),
     rm ? h("span", { className: "rd-count" }, nodes.length + " 节点 / " + edges.length + " 关系" + (io ? " / " + io.artifacts.length + " 产物" : "")) : null,
     stats && stats.cycleCount ? h("span", { className: "rd-count", style: { color: "var(--dsw-alias-state-warn-primary)" } }, "回路 " + stats.cycleCount) : null,
+    // 总进度：所有"已知进度"节点的平均值（未记录进度的不计入），鼠标悬停看样本合计
+    prog && prog.overall !== null ? h("div", {
+      className: "rd-overall",
+      title: "总体完成进度：" + prog.overall + "%（" + prog.known + "/" + prog.nodes + " 个节点有进度记录）" + (prog.samples.total > 0 ? "；样本 " + prog.samples.done + "/" + prog.samples.total : ""),
+    },
+      h("span", { className: "rd-label" }, "总进度"),
+      h("div", { className: "rd-bar" }, h("div", { className: "rd-bar-fill" + (prog.overall >= 100 ? " rd-bar-done" : ""), style: { width: Math.max(0, Math.min(100, prog.overall)) + "%" } })),
+      h("span", { className: "rd-meta" }, prog.overall + "%" + (prog.samples.total > 0 ? " · " + prog.samples.done + "/" + prog.samples.total : "")),
+    ) : null,
     busy ? h("span", { className: "rd-busy" }, busy) : null,
     h("div", { style: { flex: 1 } }),
     rm ? h("button", { className: "rd-btn", disabled: !!busy, onClick: addNode }, "＋ 节点") : null,
@@ -870,6 +962,9 @@ function RdPage(props) {
           h("path", { d: "M0,0 L10,5 L0,10 z", fill: rdEdgeColor.feedback })),
         h("marker", { id: "rd-a-loop", viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse" },
           h("path", { d: "M0,0 L10,5 L0,10 z", fill: rdEdgeColor.loop })),
+        // 每个节点一份裁剪路径：进度填充被裁进节点形状里（菱形/六边形/圆形同样成立）
+        nodes.map((n) => h("clipPath", { id: "rd-clip-" + n.id, key: "clip-" + n.id },
+          rdShapeEl(n.shape, rects[n.id], {}))),
       ),
       h("rect", { "data-rd-bg": "1", x: 0, y: 0, width: "100%", height: "100%", fill: "transparent" }),
       h("g", { transform: `translate(${view.x},${view.y}) scale(${view.k})` },
@@ -999,12 +1094,24 @@ function RdPage(props) {
               className: "rd-shape", fill, stroke: isLinkSrc ? "#fff" : "rgba(0,0,0,.25)",
               opacity: n.status === "dropped" ? 0.5 : 1,
             }),
+            // 完成进度：按百分比从左向右填充节点形状（裁剪到形状内部），并在填充前沿画一条亮线。
+            // 未记录进度（percent=null）的节点不画填充，避免把"没数据"误读成 0%。
+            (() => {
+              const pct = rdPercentOf(n)
+              if (pct === null || pct <= 0) return null
+              const edgeX = r.x + (r.w * pct) / 100
+              return h("g", { clipPath: "url(#rd-clip-" + n.id + ")", style: { pointerEvents: "none" } },
+                h("rect", { x: r.x, y: r.y, width: Math.max(0.5, r.w * pct / 100), height: r.h, fill: "#fff", opacity: 0.3 }),
+                h("line", { x1: edgeX, y1: r.y, x2: edgeX, y2: r.y + r.h, stroke: "#fff", strokeWidth: 1.5, opacity: 0.6 }),
+              )
+            })(),
             n.kind === "milestone" ? h("text", { className: "rd-node-sub", x: r.x + 6, y: r.y + 12, fill: "#fff", opacity: 0.9 }, "◆") : null,
             n.inCycle ? h("text", { className: "rd-node-sub", x: r.x + r.w - 14, y: r.y + 13, fill: "#fff", opacity: 0.9 }, "↻") : null,
             h("text", { className: "rd-node-label", x: r.cx, y: r.cy - 2, textAnchor: "middle", fill: "#fff" }, rdCut(n.title, 18)),
             view.k >= 0.42 ? h("text", { className: "rd-node-sub", x: r.cx, y: r.cy + 15, textAnchor: "middle", fill: "#fff" },
               (rdKindLabel[n.kind] || n.kind) + " · " + (rdStatusLabel[n.status] || n.status) + (n.track ? " · " + rdCut(n.track, 8) : "")) : null,
-            view.k >= 0.35 ? h("text", { className: "rd-node-sub", x: r.x + r.w - 6, y: r.y + r.h - 5, textAnchor: "end", fill: "#fff", opacity: 0.7 }, "v" + n.version) : null,
+            view.k >= 0.35 ? h("text", { className: "rd-node-sub", x: r.x + r.w - 6, y: r.y + r.h - 5, textAnchor: "end", fill: "#fff", opacity: 0.75 },
+              "v" + n.version + (rdPercentOf(n) !== null ? " · " + rdPercentOf(n) + "%" : "")) : null,
             view.k >= 0.5 && n.tool ? h("text", { className: "rd-node-sub", x: r.x + 6, y: r.y + r.h - 5, textAnchor: "start", fill: "#fff", opacity: 0.9 }, "⚙ " + rdCut(n.tool, 9)) : null,
             // 尺寸手柄
             isSel && sel.length === 1 ? h("rect", {
@@ -1084,6 +1191,30 @@ function RdPage(props) {
     h("div", { className: "rd-field" }, h("span", { className: "rd-label" }, "形状（即时生效）"),
       h("select", { className: "rd-select", value: selNode.shape, onChange: (e) => quickPatch(selNode.id, { shape: e.target.value }) },
         rdShapes.map((s) => h("option", { value: s, key: s }, rdShapeLabel[s])))),
+    // 完成进度：百分比按钮即时生效（画布节点图形块按比例填充），也可按「完成/总数」记录样本数
+    h("div", { className: "rd-field" }, h("span", { className: "rd-label" }, "完成进度（即时生效）"),
+      h("div", { className: "rd-row" },
+        [0, 25, 50, 75, 100].map((p) => h("button", {
+          key: "p" + p, className: "rd-btn", disabled: !!busy,
+          onClick: () => patchNode(selNode.id, { progress: p }, "进度设为 " + p + "%"),
+        }, p + "%")),
+        rdPercentOf(selNode) !== null ? h("span", { className: "rd-count" }, "当前 " + rdPercentOf(selNode) + "%") : h("span", { className: "rd-meta" }, "未记录"),
+      ),
+      h("div", { className: "rd-row", style: { marginTop: 4 } },
+        h("input", { className: "rd-input", style: { width: 62 }, type: "number", min: 0, placeholder: "完成", value: draft ? draft.progDone : "", onChange: (e) => setDraft({ ...draft, progDone: e.target.value }) }),
+        h("span", { className: "rd-meta" }, "/"),
+        h("input", { className: "rd-input", style: { width: 62 }, type: "number", min: 1, placeholder: "总数", value: draft ? draft.progTotal : "", onChange: (e) => setDraft({ ...draft, progTotal: e.target.value }) }),
+        h("input", { className: "rd-input", style: { width: 58 }, placeholder: "单位", value: draft ? draft.progUnit : "", onChange: (e) => setDraft({ ...draft, progUnit: e.target.value }) }),
+        h("button", {
+          className: "rd-btn", disabled: !!busy || !draft || !draft.progTotal,
+          onClick: () => patchNode(selNode.id, {
+            progress: { done: Number(draft.progDone) || 0, total: Number(draft.progTotal), unit: draft.progUnit || undefined },
+          }, "样本 " + (Number(draft.progDone) || 0) + "/" + Number(draft.progTotal)),
+        }, "保存样本数"),
+        selNode.progress ? h("button", { className: "rd-btn rd-btn-danger", disabled: !!busy, onClick: () => patchNode(selNode.id, { progress: null }, "清除进度") }, "清除") : null,
+      ),
+      selNode.progress && selNode.progress.note ? h("div", { className: "rd-meta" }, "备注：" + selNode.progress.note) : null,
+    ),
     h("div", { className: "rd-field" }, h("span", { className: "rd-label" }, "输入 inputs（每行一个产物/数据）"),
       h("textarea", { className: "rd-textarea", style: { minHeight: 48 }, value: draft ? draft.inputs : "", onChange: (e) => setDraft({ ...draft, inputs: e.target.value }), placeholder: "如：raw_reads.fastq\nmanifest.tsv" })),
     h("div", { className: "rd-field" }, h("span", { className: "rd-label" }, "输出 outputs（每行一个产物/数据）"),
@@ -1210,14 +1341,58 @@ function RdPage(props) {
       ),
   )
 
+  // ── 进度面板：总体完成度 + 分泳道/分类型 + 逐步进度（点行定位到节点）──
+  const progRow = (label, slot, nodeId) => h("div", {
+    className: "rd-prog-row" + (nodeId ? " rd-prog-node" : ""),
+    key: (nodeId || "g") + ":" + label,
+    onClick: nodeId ? () => { setSel([nodeId]); setSelEdge(""); setTab("props") } : undefined,
+    title: nodeId ? "点击定位该步骤" : undefined,
+  },
+    h("div", { className: "rd-prog-head" },
+      h("span", { className: "rd-prog-name" }, label),
+      h("span", { className: "rd-prog-pct" },
+        slot && slot.total
+          ? (slot.done || 0) + "/" + slot.total
+          : slot && slot.percent !== null && slot.percent !== undefined ? slot.percent + "%" : "—"),
+    ),
+    h("div", { className: "rd-bar" },
+      h("div", {
+        className: "rd-bar-fill" + (slot && slot.percent >= 100 ? " rd-bar-done" : ""),
+        style: { width: Math.max(0, Math.min(100, (slot && slot.percent) || 0)) + "%" },
+      })),
+  )
+
+  const sideProg = h("div", null,
+    h("div", { className: "rd-row" },
+      h("div", { className: "rd-progress-big" }, prog && prog.overall !== null ? prog.overall + "%" : "—"),
+      h("div", { style: { flex: 1 } }),
+      h("span", { className: "rd-meta" }, prog ? prog.doneNodes + "/" + prog.nodes + " 步骤完成" : ""),
+    ),
+    h("div", { className: "rd-bar", style: { height: 10, marginTop: 6 } },
+      h("div", { className: "rd-bar-fill" + (prog && prog.overall >= 100 ? " rd-bar-done" : ""), style: { width: Math.max(0, Math.min(100, (prog && prog.overall) || 0)) + "%" } })),
+    h("div", { className: "rd-meta", style: { marginTop: 5 } },
+      prog
+        ? "有进度记录 " + prog.known + "/" + prog.nodes + " 个节点" + (prog.unknown ? "（未记录 " + prog.unknown + " 个不计入平均）" : "") + (prog.samples.total > 0 ? " ｜ 样本 " + prog.samples.done + "/" + prog.samples.total + "（" + prog.samples.percent + "%）" : "")
+        : ""),
+    h("div", { className: "rd-label", style: { marginTop: 12 } }, "按泳道"),
+    prog ? Object.keys(prog.byTrack).map((k) => progRow(k, prog.byTrack[k], null)) : h("div", { className: "rd-empty" }, "暂无数据。"),
+    h("div", { className: "rd-label", style: { marginTop: 12 } }, "按类型"),
+    prog ? Object.keys(prog.byKind).map((k) => progRow(rdKindLabel[k] || k, prog.byKind[k], null)) : null,
+    h("div", { className: "rd-label", style: { marginTop: 12 } }, "逐步进度（点击定位）"),
+    nodes.length
+      ? nodes.map((n) => progRow(rdCut(n.title, 18), { percent: rdPercentOf(n), done: n.progress && n.progress.done, total: n.progress && n.progress.total }, n.id))
+      : h("div", { className: "rd-empty" }, "还没有步骤。"),
+  )
+
   const side = h("div", { className: "rd-side" },
     h("div", { className: "rd-tabs" },
       h("button", { className: "rd-tab" + (tab === "props" ? " rd-tab-on" : ""), onClick: () => setTab("props") }, "属性"),
+      h("button", { className: "rd-tab" + (tab === "prog" ? " rd-tab-on" : ""), onClick: () => setTab("prog") }, "进度"),
       h("button", { className: "rd-tab" + (tab === "ver" ? " rd-tab-on" : ""), onClick: () => { setTab("ver"); if (selNode && versions === null) loadVersions() } }, "版本"),
       h("button", { className: "rd-tab" + (tab === "io" ? " rd-tab-on" : ""), onClick: () => setTab("io") }, "数据流"),
       h("button", { className: "rd-tab" + (tab === "ai" ? " rd-tab-on" : ""), onClick: () => setTab("ai") }, "AI 生成"),
     ),
-    tab === "props" ? sideProps : tab === "ver" ? sideVer : tab === "io" ? sideIo : sideAi,
+    tab === "props" ? sideProps : tab === "prog" ? sideProg : tab === "ver" ? sideVer : tab === "io" ? sideIo : sideAi,
   )
 
   return h("div", { className: "rd" },
@@ -1258,6 +1433,124 @@ function RdPage(props) {
   )
 }
 
+// ── 按项目显隐「技术路线图」标签页 ───────────────────────────────────────────
+// conversation.view 的 tab 列表由 slots.entries() 全局生成（shell 没有"按会话过滤"的钩子，
+// 唯一内建特例是 developerTools 关闭时隐藏 trajectory），所以「项目没有路线图就不显示这个
+// 标签页」只能这样做：**只在当前项目有 .dsh/roadmap.json 时才把入口注册进去，否则 dispose**。
+//
+// 当前项目 = 当前会话所属 Workspace 的 path：
+//   workspaces.list.getSnapshot().items 里有 { workspaceId, path, sessionIds[] }，
+//   uiWorkspace.mainReference.sessionId 是当前会话 id（与 shell 新建会话时的推导方式一致）。
+// 工作区变化时重新判定；隐藏期间每 5s 轻量复查一次（本地 HTTP，开销可忽略），
+// 这样 AI 在会话里 roadmap_init 后，标签页最多 5s 内自动出现。
+
+const RD_VIEW_META = { name: "conversation.view", id: "roadmap", order: 20, label: "技术路线图" }
+const RD_RECHECK_HIDDEN_MS = 5000
+
+function rdCurrentProjectRoot(ctx) {
+  try {
+    const ws = ctx.get("workspaces")
+    const store = ws && ws.list
+    if (!store || typeof store.getSnapshot !== "function") return { supported: false, root: null }
+    const snap = store.getSnapshot() || {}
+    const items = Array.isArray(snap.items) ? snap.items : []
+    const ui = ctx.get("uiWorkspace")
+    const ref = ui && ui.mainReference
+    const sessionId = ref && ref.sessionId
+    const project = rdProjectOf(items, sessionId)
+    const root = project && typeof project.path === "string" && project.path ? project.path : null
+    return { supported: true, root }
+  } catch {
+    return { supported: false, root: null }
+  }
+}
+
+function rdMountView(ctx, slots) {
+  let slotReady = false
+  let entry = null
+  let want = false
+  let lastRoot = null
+  let lastProbeAt = 0
+  let probing = false
+  let timer = null
+
+  const sync = () => {
+    if (!slotReady) return
+    if (want && !entry) {
+      entry = slots.register(RD_VIEW_META, RdPage) || null
+    } else if (!want && entry) {
+      try { entry() } catch { /* 忽略 */ }
+      entry = null
+    }
+  }
+
+  const probe = async (root) => {
+    if (probing) return
+    probing = true
+    lastProbeAt = Date.now()
+    try {
+      const r = await rdApi("show", { root })
+      want = Boolean(r && r.ok !== false && r.initialized)
+      lastRoot = root
+      sync()
+    } catch {
+      /* 宿主不可用 / 尚未重启加载本引擎：保持现状，不误隐藏 */
+    } finally {
+      probing = false
+    }
+  }
+
+  const recheck = (force) => {
+    const cur = rdCurrentProjectRoot(ctx)
+    // 宿主没提供 workspaces 服务（旧版本/受限宿主）→ 退回旧行为：始终显示，不误隐藏
+    if (!cur.supported) { want = true; sync(); return }
+    // 有服务但没有当前项目（欢迎页/未选会话）→ 不显示
+    if (!cur.root) { want = false; sync(); return }
+    const root = cur.root
+    if (!force && root === lastRoot) {
+      if (want) return                                              // 已显示且项目没变 → 不用再查
+      if (Date.now() - lastProbeAt < RD_RECHECK_HIDDEN_MS) return    // 隐藏中 → 限流复查
+    }
+    probe(root)
+  }
+
+  // 槽位就绪后先判定一次：默认不注册，避免"没有路线图的项目"闪一下标签页
+  slots.inject("conversation.view", () => {
+    slotReady = true
+    recheck(true)
+    return () => {
+      slotReady = false
+      if (entry) {
+        try { entry() } catch { /* 忽略 */ }
+        entry = null
+      }
+    }
+  })
+
+  // 工作区列表变化（新建/切换/删除工作区）→ 重新判定
+  try {
+    const ws = ctx.get("workspaces")
+    const store = ws && ws.list
+    if (store && typeof store.subscribe === "function" && typeof ctx.effect === "function") {
+      ctx.effect(() => store.subscribe(() => recheck(false)))
+    }
+  } catch {
+    /* 无 workspaces 服务时靠轮询兜底 */
+  }
+  // 会话切换（同一工作区内换项目）与"隐藏期间 AI 新建了路线图"两件事都靠轮询兜底。
+  // Node 下 unref，避免测试/无浏览器环境因定时器挂住进程；浏览器里返回数字，无此方法。
+  timer = setInterval(() => recheck(false), 3000)
+  if (timer && typeof timer.unref === "function") timer.unref()
+
+  return () => {
+    if (timer) { clearInterval(timer); timer = null }
+    if (entry) {
+      try { entry() } catch { /* 忽略 */ }
+      entry = null
+    }
+  }
+}
+
 function applyRoadmap(ctx) {
   const slots = ctx.get("slots")
   if (slots === undefined) return
@@ -1269,10 +1562,8 @@ function applyRoadmap(ctx) {
     tag.textContent = rdCSS
     document.head.appendChild(tag)
   }
-  // 顶层会话视图：与「会话」「轨迹」并列（conversation.view），跟随会话所属项目。
-  // order 20 排在「轨迹」(10) 之后；不设 children（本视图没有子槽位）。
-  slots.inject("conversation.view", () => slots.register(
-    { name: "conversation.view", id: "roadmap", order: 20, label: "技术路线图" },
-    RdPage,
-  ))
+  // 顶层会话视图：与「会话」「轨迹」并列（conversation.view），跟随会话所属项目，
+  // 且**项目没有路线图时不注册**——标签页因此不出现。
+  const teardown = rdMountView(ctx, slots)
+  if (typeof ctx.effect === "function") ctx.effect(() => () => { if (typeof teardown === "function") teardown() })
 }

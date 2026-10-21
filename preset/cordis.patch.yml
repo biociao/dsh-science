@@ -74,7 +74,11 @@
                 3. 节点推进/换方案时改 status/params/tests 要显式备注原因（roadmap_node_update 的
                    note），引擎会自动追加版本（画布拖拽只改布局、不进版本）；要退回旧策略用
                    roadmap_node_revert，历史永不删除。查历史与字段级差异用 roadmap_node_history。
-                4. 需要给人看时 roadmap_render 输出 mermaid（可贴进 README/论文方法学附图）。
+                4. 有执行进度时（跑完一批样本、某个步骤做到 x/y），用 roadmap_node_update 的 progress
+                   如实记录（{done,total,unit} 或 {percent}）—— 画布会按比例填充该步骤的图形块，工具栏/「进度」
+                   页给出总进度与分泳道汇总；进度变更同样进版本，可回溯"什么时候从 30/120 推到 90/120"。
+                   没有依据就不要编造进度。
+                5. 需要给人看时 roadmap_render 输出 mermaid（可贴进 README/论文方法学附图）。
 
                 ## 工件与溯源
                 重要的结果（数据表、变异列表、图表、模型输出）必须用 artifact_save 保存为版本化工件

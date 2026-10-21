@@ -42,8 +42,10 @@ const SIDEBAR_CSS = `
 .dshsci-workspaces-toggle{display:inline-flex;flex:none;align-items:center;justify-content:center;width:16px;height:16px;padding:0;border:0;background:0 0;color:inherit;font:inherit;cursor:pointer;border-radius:4px}
 .dshsci-workspaces-toggle:focus-visible{outline:1px solid var(--dsw-alias-border-l3,var(--dsw-alias-border-l2));outline-offset:2px}
 /* 整个中段（置顶 + 工作区 + 最近）共用一个滚动容器：置顶/最近不再各自限高滚动，
-   避免展开大量会话时把「工作区 / 最近」挤掉。 */
-[data-dshsci-scroll="1"]{overflow-y:auto;overflow-x:hidden}
+   避免展开大量会话时把「工作区 / 最近」挤掉。overflow 必须 !important：原生
+   regionArea 的 overflow:hidden 与属性选择器同权重且加载更晚，不加 !important
+   会被覆盖成 hidden（内容被裁切、鼠标滚轮无法滚动）。 */
+[data-dshsci-scroll="1"]{overflow-y:auto!important;overflow-x:hidden!important;min-height:0}
 [data-dshsci-scroll="1"] > div:not([data-dshsci-section]){flex:0 0 auto;min-height:0}
 [data-dshsci-scroll="1"] [data-dshsci-browser="1"]{flex:0 0 auto;height:auto;min-height:0;overflow:visible}
 [data-dshsci-scroll="1"] [data-dshsci-browser="1"] > [class*="_listArea"]{flex:0 0 auto;min-height:0;overflow:visible}

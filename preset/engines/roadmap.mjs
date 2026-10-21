@@ -76,6 +76,8 @@ const SEMANTIC_FIELDS = [
   "tags", "strategy", "params", "tests", "refs", "owner",
   // I/O 契约与工具：把「输入 → 输出、用什么软件/命令」写进节点本身，画布/导出/MCP 都能看到
   "inputs", "outputs", "tool", "command",
+  // 执行进度：完成样本数/百分比（画布上以进度条填充节点图形块）
+  "progress",
 ];
 // 画布布局字段（不进版本，但会被持久化）
 const LAYOUT_FIELDS = ["pos", "size"];
@@ -169,6 +171,136 @@ function normStringList(v, key) {
   throw core.sciErr("ERR_VALIDATION", `${key} 必须是数组或分隔字符串`);
 }
 
+// ── 完成进度 ────────────────────────────────────────────────────────────────
+// 每个节点可记录执行进度：完成样本数 done / 总数 total（自动折算百分比），或直接给 percent。
+// 优先级：显式 percent > done/total > 状态推导（done=100、dropped=0，其余"未知"=null）。
+// 「未知」不参与总进度平均，避免把没记录进度的步骤当成 0% 拉低整体。
+
+const clampPercent = (n) => Math.max(0, Math.min(100, Math.round(Number(n))));
+
+// 严格校验（写路径）：接受数字 / {percent} / {done,total} / {done}；null 表示清除
+function normProgress(v, key = "progress") {
+  if (v === undefined) return undefined;
+  if (v === null) return null;
+  if (typeof v === "number" || (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v)))) {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0) throw core.sciErr("ERR_VALIDATION", `${key} 不能为负数`);
+    return { percent: clampPercent(n) };
+  }
+  if (!isObj(v)) throw core.sciErr("ERR_VALIDATION", `${key} 必须是数字、对象或 null`);
+  const out = {};
+  if (v.percent !== undefined && v.percent !== null && v.percent !== "") {
+    const n = Number(v.percent);
+    if (!Number.isFinite(n) || n < 0) throw core.sciErr("ERR_VALIDATION", `${key}.percent 必须是非负数字`);
+    out.percent = clampPercent(n);
+  }
+  if (v.done !== undefined && v.done !== null && v.done !== "") {
+    const n = Number(v.done);
+    if (!Number.isFinite(n) || n < 0) throw core.sciErr("ERR_VALIDATION", `${key}.done 必须是非负数字`);
+    out.done = Math.round(n);
+  }
+  if (v.total !== undefined && v.total !== null && v.total !== "") {
+    const n = Number(v.total);
+    if (!Number.isFinite(n) || n <= 0) throw core.sciErr("ERR_VALIDATION", `${key}.total 必须是正数`);
+    out.total = Math.round(n);
+  }
+  if (out.done !== undefined && out.total !== undefined) {
+    if (out.done > out.total) throw core.sciErr("ERR_VALIDATION", `${key}.done（${out.done}）不能大于 total（${out.total}）`);
+    if (out.percent === undefined) out.percent = clampPercent((out.done / out.total) * 100);
+  }
+  if (out.percent === undefined && out.done === undefined) {
+    throw core.sciErr("ERR_VALIDATION", `${key} 需要 percent 或 done/total 至少一项`);
+  }
+  if (v.unit !== undefined && v.unit !== null && String(v.unit).trim()) out.unit = String(v.unit).trim().slice(0, 12);
+  if (v.note !== undefined && v.note !== null && String(v.note).trim()) out.note = String(v.note).trim().slice(0, 200);
+  out.updatedAt = core.nowISO();
+  return out;
+}
+
+// 宽松归一（读路径/持久化数据可能有历史脏值）
+function normProgressLoose(v) {
+  try {
+    return normProgress(v) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// 节点百分比：显式 percent > done/total > 状态推导
+function progressOf(node) {
+  const p = node && node.progress;
+  if (isObj(p)) {
+    if (Number.isFinite(Number(p.percent))) return clampPercent(p.percent);
+    if (Number.isFinite(Number(p.done)) && Number.isFinite(Number(p.total)) && Number(p.total) > 0) {
+      return clampPercent((Number(p.done) / Number(p.total)) * 100);
+    }
+    if (Number.isFinite(Number(p.done)) && p.total === undefined) return null; // 只有绝对数、没有分母
+  }
+  if (node && node.status === "done") return 100;
+  if (node && node.status === "dropped") return 0;
+  return null;
+}
+
+function progressLabel(node) {
+  const p = node && node.progress;
+  const pct = progressOf(node);
+  if (isObj(p) && Number.isFinite(Number(p.done)) && Number.isFinite(Number(p.total))) {
+    return `${p.done}/${p.total}${p.unit ? " " + p.unit : ""}${pct !== null ? "（" + pct + "%）" : ""}`;
+  }
+  if (pct !== null) return pct + "%";
+  return "";
+}
+
+// 进度汇总（总进度/分泳道/分类型/样本合计）
+function progressSummary(nodes) {
+  const known = [];
+  const samples = { done: 0, total: 0 };
+  const byTrack = {};
+  const byKind = {};
+  const byStatus = {};
+  const bump = (bag, key, node) => {
+    const k = key || "（未分类）";
+    const slot = bag[k] || (bag[k] = { nodes: 0, known: 0, sum: 0, percent: null, done: 0, total: 0 });
+    slot.nodes += 1;
+    const pct = progressOf(node);
+    if (pct !== null) { slot.known += 1; slot.sum += pct; }
+    const p = node.progress;
+    if (isObj(p) && Number.isFinite(Number(p.done))) slot.done += Number(p.done);
+    if (isObj(p) && Number.isFinite(Number(p.total))) slot.total += Number(p.total);
+    return slot;
+  };
+  for (const n of nodes) {
+    const pct = progressOf(n);
+    if (pct !== null) known.push(pct);
+    const p = n.progress;
+    if (isObj(p) && Number.isFinite(Number(p.done))) samples.done += Number(p.done);
+    if (isObj(p) && Number.isFinite(Number(p.total))) samples.total += Number(p.total);
+    bump(byTrack, n.track, n);
+    bump(byKind, n.kind, n);
+    bump(byStatus, n.status, n);
+  }
+  const finish = (bag) => {
+    for (const slot of Object.values(bag)) slot.percent = slot.known ? Math.round(slot.sum / slot.known) : null;
+    return bag;
+  };
+  finish(byTrack); finish(byKind); finish(byStatus);
+  const doneNodes = nodes.filter((n) => n.status === "done").length;
+  return {
+    overall: known.length ? Math.round(known.reduce((a, b) => a + b, 0) / known.length) : null,
+    known: known.length,
+    unknown: nodes.length - known.length,
+    nodes: nodes.length,
+    doneNodes,
+    // 无任何显式进度时的兜底口径：按状态"完成节点/总节点"
+    doneRatio: nodes.length ? Math.round((doneNodes / nodes.length) * 100) : 0,
+    samples: { done: samples.done, total: samples.total, percent: samples.total > 0 ? clampPercent((samples.done / samples.total) * 100) : null },
+    byTrack,
+    byKind,
+    byStatus,
+  };
+}
+
+
 // ── 文档读写 ────────────────────────────────────────────────────────────────
 
 function roadmapPath(root) {
@@ -242,6 +374,7 @@ function normalizeNode(n) {
     outputs: Array.isArray(n.outputs) ? n.outputs.map(String) : [],
     tool: typeof n.tool === "string" ? n.tool : "",
     command: typeof n.command === "string" ? n.command : "",
+    progress: normProgressLoose(n.progress),
     version: Number.isFinite(Number(n.version)) ? Number(n.version) : 1,
     versions: Array.isArray(n.versions) ? n.versions : [],
     createdAt: n.createdAt || core.nowISO(),
@@ -302,7 +435,10 @@ function snapshotOf(node) {
   const snap = {};
   for (const f of SEMANTIC_FIELDS) {
     const v = node[f];
-    snap[f] = Array.isArray(v) ? v.slice() : isObj(v) ? JSON.parse(JSON.stringify(v)) : v;
+    // 缺失字段统一记 null：这样"回滚到没有 progress 的旧版本"能真正把 progress 清掉，
+    // changedFields 的 JSON 比较也不会因 undefined/null 抖动。
+    if (v === undefined) snap[f] = null;
+    else snap[f] = Array.isArray(v) ? v.slice() : isObj(v) ? JSON.parse(JSON.stringify(v)) : v;
   }
   return snap;
 }
@@ -770,11 +906,15 @@ function roadmapView(doc, cfg) {
       ...n,
       inCycle: info.nodesInCycle.has(n.id),
       depth: info.depth.get(n.id) ?? 0,
+      // 画布直接用这个百分比画填充进度条；null = 未记录进度（不画填充）
+      percent: progressOf(n),
+      progressText: progressLabel(n),
       upstream: (inList.get(n.id) || []).map((e) => e.from),
       downstream: (outList.get(n.id) || []).map((e) => e.to),
     })),
     edges: doc.edges,
     io,
+    progress: progressSummary(doc.nodes),
     stats: {
       nodes: doc.nodes.length,
       edges: doc.edges.length,
@@ -821,6 +961,8 @@ function nodeDetail(doc, nodeId, cfg) {
       pos: isObj(node.pos) ? node.pos : autoLayoutPositions(doc, cfg, { style: layoutStyleOf(doc) })[node.id],
       inCycle: info.nodesInCycle.has(nodeId),
       depth: info.depth.get(nodeId) ?? 0,
+      percent: progressOf(node),
+      progressText: progressLabel(node),
     },
     upstream: walk(nodeId, inList).map((id) => ({ id, title: titleOf(doc, id), via: directEdges(doc, id, nodeId, "in") })),
     downstream: walk(nodeId, outList).map((id) => ({ id, title: titleOf(doc, id), via: directEdges(doc, nodeId, id, "out") })),
@@ -903,6 +1045,8 @@ function renderMermaid(doc, opts = {}) {
   const transferOf = new Map(io.transfers.map((t) => [t.edge, t.artifacts]));
   for (const n of doc.nodes) {
     const label = [`${n.id}. ${n.title}`, `${KIND_LABEL[n.kind] || n.kind} · ${STATUS_LABEL[n.status] || n.status}${n.track ? " · " + n.track : ""}`];
+    const pct = progressOf(n);
+    if (pct !== null) label.push(`进度 ${progressLabel(n) || pct + "%"}`);
     if (n.summary) label.push(escMermaid(n.summary).slice(0, 80));
     if (n.tool) label.push("⚙ " + escMermaid(n.tool).slice(0, 80));
     const html = label.join("<br/>");
@@ -996,6 +1140,7 @@ function createNode(doc, input, meta = {}) {
     outputs: normStringList(input.outputs, "outputs") || [],
     tool: optStrWithDefault(input, "tool", ""),
     command: optStrWithDefault(input, "command", ""),
+    progress: normProgress(input.progress) ?? null,
     version: 0,
     versions: [],
     createdAt: core.nowISO(),
@@ -1042,6 +1187,12 @@ function patchNode(doc, id, patch, meta = {}) {
   if (patch.outputs !== undefined) assign("outputs", patch.outputs, (v) => normStringList(v, "outputs") || []);
   if (patch.tool !== undefined) assign("tool", patch.tool, (v) => String(v));
   if (patch.command !== undefined) assign("command", patch.command, (v) => String(v));
+  // 进度：null 表示清除；数字/对象走严格校验（done 不能大于 total）
+  if (patch.progress !== undefined) {
+    const p = normProgress(patch.progress);
+    node.progress = p ?? null;
+    applied.push("progress");
+  }
 
   // 布局字段：不进版本
   let layoutChanged = false;
@@ -1357,7 +1508,7 @@ function apply(ctx, config = {}) {
   ctx.tools.register(core.makeTool({
     name: "roadmap_node_add",
     description:
-      "新增路线图节点（步骤/issue/里程碑）。可指定 kind/status/track（泳道）/color/shape/tags/strategy（分析策略）/params（超参）/tests/refs/pos·size 以及 IO 契约：inputs（输入产物，数组）、outputs（输出产物，数组）、tool（软件/工具名）、command（命令或程序调用）。当下游节点的 inputs 与上游 outputs 同名时，两者的边会自动成为该产物的 IO 传递关系（画布/Mermaid/数据流面板可见）。新节点自动获得 v1 版本。返回结构化 JSON。",
+      "新增路线图节点（步骤/issue/里程碑）。可指定 kind/status/track（泳道）/color/shape/tags/strategy（分析策略）/params（超参）/tests/refs/pos·size 以及 IO 契约：inputs（输入产物，数组）、outputs（输出产物，数组）、tool（软件/工具名）、command（命令或程序调用）。progress 记录执行进度（{done,total,unit} 或 {percent}），画布上以进度条填充该节点图形块。当下游节点的 inputs 与上游 outputs 同名时，两者的边会自动成为该产物的 IO 传递关系（画布/Mermaid/数据流面板可见）。新节点自动获得 v1 版本。返回结构化 JSON。",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -1380,6 +1531,24 @@ function apply(ctx, config = {}) {
         outputs: { type: "array", items: { type: "string" }, description: "输出产物/数据（如 clean_reads.fastq）" },
         tool: { type: "string", description: "软件/工具（如 Phrap、GLIMMER、bwa+bcftools）" },
         command: { type: "string", description: "命令或程序调用（可含占位符，便于复现）" },
+        progress: {
+          oneOf: [
+            { type: "number", description: "百分比 0-100" },
+            {
+              type: "object",
+              additionalProperties: true,
+              properties: {
+                percent: { type: "number", description: "百分比 0-100（与 done/total 二选一）" },
+                done: { type: "number", description: "已完成数量（样本数等）" },
+                total: { type: "number", description: "总量（与 done 同时给出时自动折算百分比）" },
+                unit: { type: "string", description: "单位，如 样本 / 文件 / reads" },
+                note: { type: "string", description: "进度备注" },
+              },
+            },
+            { type: "null" },
+          ],
+          description: "执行进度：{done: 已完成样本数, total: 总样本数, unit?: '样本', note?} 或 {percent: 0-100}；画布上以进度条填充该节点图形块",
+        },
         pos: { type: "object", properties: { x: { type: "number" }, y: { type: "number" } }, description: "画布坐标（可选）" },
         size: { type: "object", properties: { w: { type: "number" }, h: { type: "number" } }, description: "节点尺寸（可选）" },
         note: { type: "string", description: "版本备注" },
@@ -1411,7 +1580,7 @@ function apply(ctx, config = {}) {
   ctx.tools.register(core.makeTool({
     name: "roadmap_node_update",
     description:
-      "更新路线图节点（只传要改的字段）。语义字段（标题/状态/泳道/颜色/形状/标签/策略/超参/测试/关联/输入输出/工具/命令）变更会追加一个新版本（v2、v3…，历史 append-only）；pos/size 只改画布布局、不产生版本。action=remove 删除节点及其关系。返回结构化 JSON。",
+      "更新路线图节点（只传要改的字段）。语义字段（标题/状态/进度/泳道/颜色/形状/标签/策略/超参/测试/关联/输入输出/工具/命令）变更会追加一个新版本（v2、v3…，历史 append-only）；pos/size 只改画布布局、不产生版本。progress 用 {done,total,unit} 或 {percent} 更新完成进度（null 清除），画布上以进度条填充节点图形块。action=remove 删除节点及其关系。返回结构化 JSON。",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -1432,6 +1601,24 @@ function apply(ctx, config = {}) {
         outputs: { type: "array", items: { type: "string" }, description: "输出产物/数据" },
         tool: { type: "string", description: "软件/工具" },
         command: { type: "string", description: "命令或程序调用" },
+        progress: {
+          oneOf: [
+            { type: "number", description: "百分比 0-100" },
+            {
+              type: "object",
+              additionalProperties: true,
+              properties: {
+                percent: { type: "number", description: "百分比 0-100" },
+                done: { type: "number", description: "已完成数量" },
+                total: { type: "number", description: "总量" },
+                unit: { type: "string", description: "单位" },
+                note: { type: "string", description: "进度备注" },
+              },
+            },
+            { type: "null" },
+          ],
+          description: "执行进度 patch：{done,total,unit} 或 {percent}；null 清除进度。每次变更追加一个新版本",
+        },
         pos: { type: "object", properties: { x: { type: "number" }, y: { type: "number" } } },
         size: { type: "object", properties: { w: { type: "number" }, h: { type: "number" } } },
         note: { type: "string", description: "版本备注（写进历史，便于回溯「为什么改」）" },
@@ -1838,4 +2025,8 @@ export {
   KIND_LABEL,
   STATUS_LABEL,
   EDGE_LABEL,
+  progressOf,
+  progressLabel,
+  progressSummary,
+  normProgress,
 };

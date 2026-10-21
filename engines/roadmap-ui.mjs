@@ -75,7 +75,8 @@ const SPEC_SHAPE = `{
       "params": { "q20": 0.9 },          // 超参
       "tests": ["per-base quality"],     // 测试
       "tags": ["qc"],
-      "refs": { "experiment": "E01", "artifact": "tab@2", "hypothesis": "H1" }
+      "refs": { "experiment": "E01", "artifact": "tab@2", "hypothesis": "H1" },
+      "progress": { "done": 30, "total": 120, "unit": "样本" }   // 可选：完成样本数/百分比（不确定就不要写）
     }
   ],
   "edges": [
@@ -112,7 +113,8 @@ function buildGeneratePrompt(goal, doc) {
     "1. 每个节点是 步骤/issue/里程碑；写清 策略(strategy)、超参(params)、测试(tests)，让不同分析策略的上下游逻辑关系可追溯。",
     "2. 节点数控制在 6~24 个；泳道(track) 按阶段划分（如 数据 / 组装 / 分析 / 验证）。",
     "3. 至少包含 1 条 parallel、1 条 feedback 或 loop，体现可并行与迭代。",
-    "4. 只输出一个 JSON 对象，不要解释、不要 markdown 代码块围栏。",
+    "4. 如果目标里写了执行情况（已处理多少样本/批次、完成度），用 progress 如实记录（{done,total,unit} 或 {percent}）；**没有依据就不要凭空编造进度**，留空即可。",
+    "5. 只输出一个 JSON 对象，不要解释、不要 markdown 代码块围栏。",
     "",
     "## JSON 结构",
     SPEC_SHAPE,
@@ -562,7 +564,9 @@ function apply(ctx, config = {}) {
     async handler(req, res) {
       if (req.method !== "POST") return send(res, 405, { ok: false, error: "仅支持 POST" });
       if (!isTrustedLocalRequest(req)) return send(res, 403, { ok: false, error: "请求来源校验失败（Origin 与 Host 不一致，或 Host 不是本机回环地址）" });
-      const name = (req.url || "").replace(/^\/dsh-science\/roadmap\/?/, "").split("/")[0];
+      // 先剥 query/hash 再取方法名：浏览器可能给请求追加 ?token= 等查询串，
+      // 不剥会把方法解析成 "config?token=..." 而误判 404。
+      const name = (req.url || "").split("?")[0].split("#")[0].replace(/^\/dsh-science\/roadmap\/?/, "").split("/")[0];
       if (!name || !METHODS.includes(name)) return send(res, 404, { ok: false, error: `未知方法 ${name}` });
       try {
         const body = await readBody(req);

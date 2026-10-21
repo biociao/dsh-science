@@ -262,7 +262,8 @@ function apply(ctx, config = {}) {
     async handler(req, res) {
       if (req.method !== "POST") return send(res, 405, { ok: false, error: "仅支持 POST" });
       if (!isTrustedLocalRequest(req)) return send(res, 403, { ok: false, error: "请求来源校验失败（Origin 与 Host 不一致，或 Host 不是本机回环地址）" });
-      const name = (req.url || "").replace(/^\/dsh-science\/remote-hosts\/?/, "").split("/")[0];
+      // 先剥 query/hash：浏览器追加 ?token= 时不能把方法名解析坏（否则误判 404）
+      const name = (req.url || "").split("?")[0].split("#")[0].replace(/^\/dsh-science\/remote-hosts\/?/, "").split("/")[0];
       if (!name || !METHODS.includes(name)) return send(res, 404, { ok: false, error: `未知方法 ${name}` });
       try {
         const body = await readBody(req);
