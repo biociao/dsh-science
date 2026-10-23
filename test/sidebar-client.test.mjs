@@ -95,7 +95,8 @@ ok("sbRevealLabel linux → 文件管理器", t.sbRevealLabel("linux") === "在�
 
 const unpinnedMenu = t.sbMenuModel({ pinned: false, platform: "darwin" });
 const pinnedMenu = t.sbMenuModel({ pinned: true, platform: "darwin" });
-ok("菜单含 6 个可点击项 + 1 个分隔符", unpinnedMenu.filter((x) => !x.sep).length === 6 && unpinnedMenu.filter((x) => x.sep).length === 1);
+ok("菜单含 7 个可点击项 + 1 个分隔符", unpinnedMenu.filter((x) => !x.sep).length === 7 && unpinnedMenu.filter((x) => x.sep).length === 1);
+ok("菜单含「编辑项目…」项", unpinnedMenu.some((x) => x.act === "edit-workspace" && x.label.includes("编辑项目")));
 ok("未置顶 → 置顶项目", unpinnedMenu[0].act === "pin" && unpinnedMenu[0].label === "置顶项目");
 ok("已置顶 → 取消置顶项目", pinnedMenu[0].act === "unpin" && pinnedMenu[0].label === "取消置顶项目");
 ok("菜单含在 Finder 中显示 / 打开目录 / 复制路径", ["reveal", "open", "copy"].every((act) => unpinnedMenu.some((x) => x.act === act)));
@@ -139,6 +140,7 @@ ok("bundle 含三段式 section（置顶与最近）", bundle.includes("dshsci-s
 // overflow:hidden 覆盖，导致侧栏无法用鼠标滚轮滚动、下方项目被裁切。
 ok("中段滚动容器 overflow 强制 auto（!important）", bundle.includes('overflow-y:auto!important') && bundle.includes('data-dshsci-scroll="1"'));
 ok("最近会话经 uiWorkspace.openSession 打开", bundle.includes("uiWorkspace") && bundle.includes("openSession"));
+ok("编辑项目对话框与目录选择存在", bundle.includes("openEditDialog") && bundle.includes("dshsci-edit-path") && bundle.includes("pickDirectory"));
 const pkgJson = JSON.parse(readFileSync(path.join(pkg, "package.json"), "utf8"));
 ok("package.json exports[\"./client\"] 指向 bundle", pkgJson?.exports?.["./client"] === "./client/remote-hosts-ui/lib/client.js");
 ok("dsh.client 声明保留 web platform", pkgJson?.dsh?.client?.platform === "web");

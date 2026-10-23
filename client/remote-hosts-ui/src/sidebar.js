@@ -68,6 +68,29 @@ const SIDEBAR_CSS = `
 .dshsci-pinned-more{display:none;flex:none;align-items:center;justify-content:center;width:20px;height:20px;border:0;border-radius:6px;background:0 0;color:var(--dsw-alias-label-tertiary);cursor:pointer;padding:0}
 .dshsci-pinned-row:hover .dshsci-pinned-more,.dshsci-pinned-row:focus-within .dshsci-pinned-more{display:inline-flex}
 .dshsci-pinned-more:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dshsci-pinned-edit{display:none;flex:none;align-items:center;justify-content:center;width:20px;height:20px;border:0;border-radius:6px;background:0 0;color:var(--dsw-alias-label-tertiary);cursor:pointer;padding:0}
+.dshsci-pinned-row:hover .dshsci-pinned-edit,.dshsci-pinned-row:focus-within .dshsci-pinned-edit{display:inline-flex}
+.dshsci-pinned-edit:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dshsci-row-edit{display:none;flex:none;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:var(--dsw-radius-sm,6px);background:0 0;color:var(--dsw-alias-label-tertiary);cursor:pointer}
+[data-row-key^="workspace:"]:hover .dshsci-row-edit,[data-row-key^="workspace:"]:focus-within .dshsci-row-edit{display:inline-flex}
+.dshsci-row-edit:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dshsci-modal-mask{position:fixed;inset:0;z-index:2147483100;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;padding:24px}
+.dshsci-modal{box-sizing:border-box;width:min(430px,100%);border:1px solid var(--dsw-alias-border-l2);border-radius:14px;background:var(--dsw-alias-bg-layer-2,#fff);color:var(--dsw-alias-label-primary);box-shadow:0 24px 64px rgba(0,0,0,.28);padding:18px;display:flex;flex-direction:column;gap:13px;font-size:13px}
+.dshsci-modal-title{font-size:15px;font-weight:600;line-height:22px}
+.dshsci-field{display:flex;flex-direction:column;gap:5px}
+.dshsci-label{font-size:12px;color:var(--dsw-alias-label-secondary)}
+.dshsci-input{box-sizing:border-box;width:100%;height:32px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:0 0;color:var(--dsw-alias-label-primary);font:inherit}
+.dshsci-input:focus{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-1px}
+.dshsci-path-row{display:flex;gap:8px}
+.dshsci-path-row .dshsci-input{flex:1;min-width:0;font-family:ui-monospace,Menlo,monospace;font-size:12px}
+.dshsci-hint{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary)}
+.dshsci-hint-warn{color:var(--dsw-alias-state-warn-primary)}
+.dshsci-modal-error{font-size:12px;line-height:16px;color:var(--dsw-alias-state-error-primary);min-height:16px}
+.dshsci-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:2px}
+.dshsci-btn{height:30px;padding:0 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:15px;background:0 0;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer}
+.dshsci-btn:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.dshsci-btn-primary{background:var(--dsw-alias-button-primary-fill,var(--dsw-alias-brand-primary));border-color:transparent;color:var(--dsw-alias-label-primary-foreground,#fff)}
+.dshsci-btn:disabled{opacity:.55;cursor:default}
 .dshsci-pinned-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dshsci-count{flex:none;font-size:11px;line-height:16px;padding:0 6px;border-radius:99px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
 .dshsci-pinned-new{display:none;flex:none;align-items:center;justify-content:center;width:20px;height:20px;border:0;border-radius:6px;background:0 0;color:var(--dsw-alias-label-tertiary);cursor:pointer;padding:0}
@@ -149,6 +172,7 @@ function sbMenuModel(info) {
   const pinned = Boolean(info && info.pinned)
   return [
     { act: pinned ? "unpin" : "pin", label: pinned ? "取消置顶项目" : "置顶项目", icon: "pin" },
+    { act: "edit-workspace", label: "编辑项目…", icon: "edit" },
     { act: "reveal", label: sbRevealLabel(info && info.platform), icon: "folder" },
     { act: "open", label: "打开项目目录", icon: "external" },
     { act: "copy", label: "复制项目路径", icon: "copy" },
@@ -235,6 +259,7 @@ const sbIcon = (name) => {
     case "copy": return svg('<rect x="5.4" y="5.4" width="7.2" height="7.2" rx="1.4"/><path d="M10.6 5.4V4.2c0-.6-.5-1.1-1.1-1.1H4.2c-.6 0-1.1.5-1.1 1.1v5.3c0 .6.5 1.1 1.1 1.1h1.2"/>')
     case "plus": return svg('<path d="M8 3.6v8.8"/><path d="M3.6 8h8.8"/>')
     case "chevron": return svg('<path d="m6 4.2 3.8 3.8L6 11.8"/>')
+    case "edit": return svg('<path d="M3.3 12.7 3.8 9.9 10.9 2.8c.3-.3.8-.3 1.1 0l1.2 1.2c.3.3.3.8 0 1.1l-7.1 7.1-2.8.5Z"/><path d="M9.9 3.8l2.3 2.3"/>')
     case "ellipsis": return svg('<circle cx="3.4" cy="8" r="1" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1" fill="currentColor" stroke="none"/><circle cx="12.6" cy="8" r="1" fill="currentColor" stroke="none"/>')
     case "chat": return svg('<path d="M2.8 4.2c0-.8.6-1.4 1.4-1.4h7.6c.8 0 1.4.6 1.4 1.4v5.2c0 .8-.6 1.4-1.4 1.4H7.4L4.4 13v-2.2H4.2c-.8 0-1.4-.6-1.4-1.4V4.2Z"/>')
     case "caret": return svg('<path d="m6 4.2 3.8 3.8L6 11.8"/>')
@@ -271,6 +296,7 @@ function applySidebar(ctx) {
     pop: null,
     toast: null,
     toastTimer: 0,
+    editDialog: null,
     hoverRow: null,
     hoverTimer: 0,
     hoverRestoreTimer: 0,
@@ -573,6 +599,7 @@ function applySidebar(ctx) {
       + '<span class="dshsci-pin-ico">' + sbIcon("folder") + "</span>"
       + '<span class="dshsci-pinned-name">' + sbEscapeHtml(item.title) + "</span>"
       + '<span class="dshsci-row-pin" title="已置顶" aria-label="已置顶">' + sbIcon("pin") + "</span>"
+      + '<button type="button" class="dshsci-pinned-edit" data-dshsci-act="edit-workspace" data-dshsci-ws="' + sbEscapeHtml(item.workspaceId) + '" title="编辑项目" aria-label="编辑项目">' + sbIcon("edit") + "</button>"
       + '<button type="button" class="dshsci-pinned-more" data-dshsci-act="more" data-dshsci-ws="' + sbEscapeHtml(item.workspaceId) + '" title="项目操作" aria-label="项目操作">' + sbIcon("ellipsis") + "</button>"
       + '<button type="button" class="dshsci-pinned-new" data-dshsci-act="new" data-dshsci-ws="' + sbEscapeHtml(item.workspaceId) + '" title="新建会话" aria-label="新建会话">' + sbIcon("plus") + "</button>"
       + "</div>"
@@ -634,6 +661,21 @@ function applySidebar(ctx) {
         row.appendChild(badgeEl)
       } else if (!pinned && badge) {
         badge.remove()
+      }
+      const actions = row.querySelector(':scope > [class*="rowActions"]')
+      if (actions !== null) {
+        let edit = actions.querySelector(":scope > .dshsci-row-edit")
+        if (edit === null) {
+          edit = document.createElement("button")
+          edit.type = "button"
+          edit.className = "dshsci-row-edit"
+          edit.setAttribute("data-dshsci-act", "edit-workspace")
+          edit.title = "编辑项目"
+          edit.setAttribute("aria-label", "编辑项目")
+          edit.innerHTML = sbIcon("edit")
+          actions.insertBefore(edit, actions.lastElementChild)
+        }
+        edit.setAttribute("data-dshsci-ws", key.slice(SIDEBAR_ROW_PREFIX.length))
       }
     }
   }
@@ -701,6 +743,170 @@ function applySidebar(ctx) {
     state.toastTimer = setTimeout(() => {
       if (state.toast === toast) { toast.remove(); state.toast = null }
     }, isError ? 4200 : 2200)
+  }
+
+  // ── 编辑项目（改名 / 更换工作区目录）──
+  const refreshPins = async () => {
+    try {
+      const result = await sbApi("pins")
+      if (result && result.ok !== false) { state.pins = sbNormalizePins(result.pins); state.sig = "" }
+    } catch { /* ignore */ }
+  }
+
+  const closeEditDialog = () => {
+    if (state.editDialog) { state.editDialog.remove(); state.editDialog = null }
+  }
+
+  const migratePinnedWorkspace = async (oldInfo, created, title) => {
+    const wasPinned = state.pins.some((pin) => pin.workspaceId === oldInfo.workspaceId)
+    if (!wasPinned) return
+    try {
+      await sbApi("pin", { workspaceId: String(created.workspaceId), path: created.path || "", title: title || created.title || "" })
+      await sbApi("unpin", { workspaceId: oldInfo.workspaceId })
+      if (state.pinnedExpanded.has(oldInfo.workspaceId)) {
+        state.pinnedExpanded.delete(oldInfo.workspaceId)
+        state.pinnedExpanded.add(String(created.workspaceId))
+      }
+    } catch { /* 置顶迁移失败不影响项目本身 */ }
+  }
+
+  // 编辑对话框：改名 + 更换绑定目录。DSH 的工作区路径本身不可变，更换目录的语义是
+  // 「注册新路径为新工作区 + 移除旧注册」（会话记录保留，会落到「未分组」），
+  // 这里同时把置顶状态迁移到新工作区，并在对话框里明确提示这一点。
+  const openEditDialog = (info) => {
+    closeEditDialog()
+    const mask = document.createElement("div")
+    mask.className = "dshsci-modal-mask"
+    const box = document.createElement("div")
+    box.className = "dshsci-modal"
+    box.setAttribute("role", "dialog")
+    box.setAttribute("aria-modal", "true")
+    box.setAttribute("aria-label", "编辑项目")
+    box.innerHTML = '<div class="dshsci-modal-title">编辑项目</div>'
+      + '<div class="dshsci-field"><span class="dshsci-label">项目名称</span>'
+      + '<input class="dshsci-input dshsci-edit-title" maxlength="200" spellcheck="false" /></div>'
+      + '<div class="dshsci-field"><span class="dshsci-label">工作区目录</span>'
+      + '<div class="dshsci-path-row"><input class="dshsci-input dshsci-edit-path" spellcheck="false" />'
+      + '<button type="button" class="dshsci-btn dshsci-edit-pick">选择目录…</button></div>'
+      + '<div class="dshsci-hint">项目绑定到该目录；路径必须是一个已存在的目录。</div>'
+      + '<div class="dshsci-hint dshsci-hint-warn dshsci-edit-warn" style="display:none">'
+      + "更换目录会注册为新工作区并移除旧工作区注册：现有会话会保留，但会显示在「未分组」中（会话记录不会迁移）。</div></div>"
+      + '<div class="dshsci-modal-error dshsci-edit-error"></div>'
+      + '<div class="dshsci-modal-actions">'
+      + '<button type="button" class="dshsci-btn dshsci-edit-cancel">取消</button>'
+      + '<button type="button" class="dshsci-btn dshsci-btn-primary dshsci-edit-save">保存</button></div>'
+    mask.appendChild(box)
+    document.body.appendChild(mask)
+    state.editDialog = mask
+
+    const titleInput = box.querySelector(".dshsci-edit-title")
+    const pathInput = box.querySelector(".dshsci-edit-path")
+    const warn = box.querySelector(".dshsci-edit-warn")
+    const errorEl = box.querySelector(".dshsci-edit-error")
+    const pickBtn = box.querySelector(".dshsci-edit-pick")
+    const cancelBtn = box.querySelector(".dshsci-edit-cancel")
+    const saveBtn = box.querySelector(".dshsci-edit-save")
+    titleInput.value = info.title || ""
+    pathInput.value = info.path || ""
+    let busy = false
+    const updateWarn = () => {
+      const changed = pathInput.value.trim() !== (info.path || "")
+      warn.style.display = changed ? "" : "none"
+    }
+    updateWarn()
+    pathInput.addEventListener("input", updateWarn)
+    titleInput.focus()
+    titleInput.select()
+
+    const close = () => {
+      if (busy) return
+      closeEditDialog()
+    }
+    mask.addEventListener("mousedown", (event) => { if (event.target === mask) close() })
+    cancelBtn.addEventListener("click", close)
+    box.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") { event.preventDefault(); close() }
+      else if (event.key === "Enter" && (event.target === titleInput || event.target === pathInput)) { event.preventDefault(); void save() }
+    })
+    pickBtn.addEventListener("click", async () => {
+      const ui = safeGet("uiWorkspace")
+      if (!ui || typeof ui.pickDirectory !== "function") { errorEl.textContent = "当前环境不支持目录选择，请手动输入路径"; return }
+      pickBtn.disabled = true
+      errorEl.textContent = ""
+      try {
+        const picked = await ui.pickDirectory()
+        if (typeof picked === "string" && picked !== "") { pathInput.value = picked; updateWarn() }
+      } catch (error) {
+        errorEl.textContent = String((error && error.message) || error)
+      } finally {
+        pickBtn.disabled = false
+      }
+    })
+
+    async function save() {
+      if (busy) return
+      const workspaces = safeGet("workspaces")
+      if (!workspaces || typeof workspaces.create !== "function") { errorEl.textContent = "工作区服务不可用"; return }
+      const desiredTitle = titleInput.value.trim()
+      const desiredPath = pathInput.value.trim()
+      if (desiredTitle === "") { errorEl.textContent = "项目名称不能为空"; return }
+      if (desiredPath === "") { errorEl.textContent = "工作区目录不能为空"; return }
+      busy = true
+      errorEl.textContent = ""
+      saveBtn.disabled = true
+      cancelBtn.disabled = true
+      pickBtn.disabled = true
+      saveBtn.textContent = "保存中…"
+      try {
+        const oldId = info.workspaceId
+        let targetId = oldId
+        let createdTitle = ""
+        if (desiredPath !== info.path) {
+          const snapshotBefore = workspaces.list && workspaces.list.getSnapshot ? workspaces.list.getSnapshot() : null
+          const itemsBefore = snapshotBefore && Array.isArray(snapshotBefore.items) ? snapshotBefore.items : []
+          const created = await workspaces.create({ path: desiredPath })
+          const createdId = String(created.workspaceId)
+          createdTitle = created.title || ""
+          if (createdId !== oldId && itemsBefore.some((item) => String(item.workspaceId) === createdId)) {
+            const owner = itemsBefore.find((item) => String(item.workspaceId) === createdId)
+            throw new Error("该目录已绑定到项目「" + ((owner && owner.title) || created.title || createdId) + "」，请直接在原项目中操作")
+          }
+          if (createdId !== oldId) {
+            const snapshot = workspaces.list && workspaces.list.getSnapshot ? workspaces.list.getSnapshot() : null
+            const items = snapshot && Array.isArray(snapshot.items) ? snapshot.items : []
+            const oldIndex = items.findIndex((item) => String(item.workspaceId) === oldId)
+            if (oldIndex >= 0) {
+              const anchor = items[oldIndex + 1] ? String(items[oldIndex + 1].workspaceId) : undefined
+              try { if (anchor) await workspaces.insertBefore(createdId, anchor); else await workspaces.insertBefore(createdId) } catch { /* 顺序失败不阻断 */ }
+            }
+            await workspaces.delete(oldId)
+            targetId = createdId
+            await migratePinnedWorkspace(info, created, desiredTitle)
+          }
+        } else if (desiredTitle !== info.title && state.pins.some((pin) => pin.workspaceId === oldId)) {
+          // 仅改名：同步置顶记录里的展示标题（失败不影响改名本身）。
+          try { await sbApi("pin", { workspaceId: oldId, path: info.path || "", title: desiredTitle }) } catch { /* ignore */ }
+        }
+        const needsRename = targetId === oldId ? desiredTitle !== info.title : desiredTitle !== createdTitle
+        if (needsRename) {
+          try { await workspaces.rename(targetId, desiredTitle) } catch { /* 标题冲突时保留默认标题 */ }
+        }
+        busy = false
+        closeEditDialog()
+        await refreshPins()
+        state.sig = ""
+        sync()
+        showToast(targetId === oldId ? "已更新项目「" + desiredTitle + "」" : "已更换目录并更新项目「" + desiredTitle + "」")
+      } catch (error) {
+        busy = false
+        saveBtn.disabled = false
+        cancelBtn.disabled = false
+        pickBtn.disabled = false
+        saveBtn.textContent = "保存"
+        errorEl.textContent = String((error && error.message) || error)
+      }
+    }
+    saveBtn.addEventListener("click", () => { void save() })
   }
 
   // ── 右键菜单 ──
@@ -1057,6 +1263,7 @@ function applySidebar(ctx) {
     if (!info) return
     try {
       if (act === "pin" || act === "unpin") return await doPin(info)
+      if (act === "edit-workspace") { closeMenu(); openEditDialog(info); return }
       if (act === "reveal") return await doReveal(info)
       if (act === "open") return await doOpen(info)
       if (act === "copy") return await doCopy(info)
@@ -1097,7 +1304,7 @@ function applySidebar(ctx) {
     const actionRow = target.closest(SIDEBAR_ROW_SEL)
     if (actionRow) {
       const button = target.closest("button")
-      const buttons = actionRow.querySelectorAll("button")
+      const buttons = Array.from(actionRow.querySelectorAll("button")).filter((item) => item.classList.contains("dshsci-row-edit") === false)
       if (button && buttons.length > 0 && buttons[0] === button) {
         const workspaceId = String(actionRow.getAttribute("data-row-key") || "").slice(SIDEBAR_ROW_PREFIX.length)
         if (workspaceId) watchNativeMenu(workspaceId)
@@ -1301,7 +1508,7 @@ function applySidebar(ctx) {
     clearTimeout(state.hoverTimer)
     clearTimeout(state.hideTimer)
     clearTimeout(state.toastTimer)
-    closeMenu(); closePop()
+    closeMenu(); closePop(); closeEditDialog()
     if (state.toast) { state.toast.remove(); state.toast = null }
     for (const toggle of document.querySelectorAll(".dshsci-workspaces-toggle")) toggle.remove()
     for (const root of document.querySelectorAll("[data-dshsci-workspaces]")) root.removeAttribute("data-dshsci-workspaces")
