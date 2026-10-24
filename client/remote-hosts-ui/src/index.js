@@ -227,6 +227,9 @@ function Page() {
 }
 
 function apply(ctx) {
+  // 侧栏增强（Codex 式置顶项目 / 右键菜单 / 悬停信息）走 DOM 层，不依赖 slots：
+  // DSH 的 `sidebar.workspaces` 是 single slot，原生浏览区已占用，插件无法再注册。
+  applySidebar(ctx)
   const slots = ctx.get("slots")
   if (slots === undefined) return
   // 注入样式（data-plugin 标签会被 client-modules 认领，随插件清理）
@@ -242,7 +245,13 @@ function apply(ctx) {
     { name: "settings.section", id: "remote-hosts", order: 5, label: "远程主机" },
     (props) => h(Page, null),
   ))
+  // 科研工作台面板（多项目分类/状态管理），来自同一 bundle 的 workbench.js（拼接注入）
+  applyWorkbench(ctx)
+  // 技术路线图画布（节点/关系/版本管理），来自同一 bundle 的 roadmap.js（拼接注入）
+  applyRoadmap(ctx)
 }
 
 // 构建脚本会把 `module.exports = plugin` 追加到包装末尾（factory 内导出）。
 const plugin = { name: "remote-hosts-ui", inject: ["slots"], apply }
+// 侧栏增强的纯函数（无 DOM）暴露给 Node 侧单测：test/sidebar-client.test.mjs
+plugin._sidebarTest = sbTest

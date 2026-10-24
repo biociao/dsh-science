@@ -1,0 +1,260 @@
+{
+  "schema_version": "0.1.0",
+  "pack": "genomics",
+  "display_name": "基因组变异",
+  "maturity": "execution",
+  "scope": "种系与体细胞 SNV/indel、CNV/SV、变异注释与解读前置检查",
+  "intake_fields": [
+    {
+      "name": "sample_model",
+      "values": "singleton / cohort / duo / trio / tumor_normal / tumor_only",
+      "blocking": true,
+      "why": "决定用 germline、joint calling 还是 somatic 模型"
+    },
+    {
+      "name": "assay",
+      "values": "wgs / wes / targeted_panel",
+      "blocking": true,
+      "why": "决定 callable 区域、覆盖度目标与 PON 兼容性"
+    },
+    {
+      "name": "reference_build",
+      "values": "GRCh38 / GRCh37 / mm10 / …",
+      "blocking": true,
+      "why": "build 不一致会让坐标与 known-sites 全部失效"
+    },
+    {
+      "name": "matched_normal",
+      "values": "true / false / unknown",
+      "blocking": true,
+      "why": "无配对正常时 somatic 结论强度与过滤策略不同"
+    }
+  ],
+  "pipelines": {
+    "germline": {
+      "display_name": "种系变异",
+      "route_when": [
+        "germline",
+        "wgs",
+        "wes",
+        "trio"
+      ],
+      "preferred_workflow": "nf-core/sarek",
+      "tools": [
+        "nextflow",
+        "gatk",
+        "samtools",
+        "bcftools"
+      ],
+      "local_runner": "run_dna_germline_variants.py",
+      "essential_questions": [
+        "是否 trio/cohort 需要 joint calling？",
+        "known-sites 与 build 是否匹配？"
+      ],
+      "local_outputs": [
+        "g.vcf.gz",
+        "qc/coverage",
+        "variants/*.vcf.gz"
+      ]
+    },
+    "somatic": {
+      "display_name": "体细胞变异",
+      "route_when": [
+        "somatic",
+        "tumor_normal",
+        "tumor_only",
+        "cancer_panel"
+      ],
+      "preferred_workflow": "nf-core/sarek",
+      "tools": [
+        "gatk",
+        "samtools",
+        "bcftools"
+      ],
+      "local_runner": "run_dna_somatic_variants.py",
+      "essential_questions": [
+        "tumor-only 还是配对？",
+        "PON/germline resource 是否同 build？",
+        "纯度与最低 AF 预期？"
+      ],
+      "local_outputs": [
+        "variants/*.filtered.vcf.gz",
+        "qc/somatic_qc_summary.json"
+      ]
+    },
+    "umi_panel": {
+      "display_name": "UMI 低频 panel",
+      "route_when": [
+        "umi",
+        "duplex",
+        "low_frequency"
+      ],
+      "preferred_workflow": "fgbio + Mutect2（本地）",
+      "tools": [
+        "fgbio",
+        "samtools",
+        "gatk"
+      ],
+      "local_runner": "run_dna_umi_panel_variants.py",
+      "essential_questions": [
+        "consensus 还是 raw BAM？",
+        "UMI 结构/tag 是什么？"
+      ],
+      "local_outputs": [
+        "consensus/*.bam",
+        "qc/umi_molecular_evidence_contract.json"
+      ]
+    },
+    "cnv_sv": {
+      "display_name": "CNV / SV",
+      "route_when": [
+        "cnv",
+        "sv",
+        "structural_variant"
+      ],
+      "preferred_workflow": "GATK gCNV / Manta / Delly",
+      "tools": [
+        "gatk",
+        "manta",
+        "delly"
+      ],
+      "local_runner": null,
+      "essential_questions": [
+        "是否有足够 cohort 做 gCNV？",
+        "是否需要 read-depth 校正？"
+      ],
+      "local_outputs": [
+        "cnv/*.vcf.gz",
+        "sv/*.vcf.gz"
+      ]
+    },
+    "annotation": {
+      "display_name": "变异注释",
+      "route_when": [
+        "annotation",
+        "vep",
+        "snpeff"
+      ],
+      "preferred_workflow": "VEP / SnpEff",
+      "tools": [
+        "vep",
+        "snpeff"
+      ],
+      "local_runner": null,
+      "essential_questions": [
+        "注释数据库/转录本版本？",
+        "缓存与 build 是否匹配？"
+      ],
+      "local_outputs": [
+        "variants/*.annotated.vcf.gz"
+      ]
+    }
+  },
+  "resources": {
+    "genome_core": {
+      "kind": "reference",
+      "root_env": "NGS_REF_GENOME",
+      "expected_files": [
+        "genome.fa",
+        "genome.fa.fai",
+        "dict"
+      ],
+      "required_for": [
+        "germline",
+        "somatic",
+        "cnv_sv"
+      ],
+      "notes": "bwa/bowtie2 索引与 GATK dict 一并视为同一 bundle"
+    },
+    "known_sites": {
+      "kind": "database",
+      "root_env": "NGS_KNOWN_SITES",
+      "expected_files": [
+        "dbsnp.vcf.gz",
+        "dbsnp.vcf.gz.tbi",
+        "mills.vcf.gz"
+      ],
+      "required_for": [
+        "germline_bqsr"
+      ],
+      "notes": "必须与 build 匹配"
+    },
+    "panel_of_normals": {
+      "kind": "panel",
+      "root_env": "NGS_PON",
+      "expected_files": [
+        "pon.vcf.gz",
+        "pon.vcf.gz.tbi"
+      ],
+      "required_for": [
+        "somatic"
+      ],
+      "notes": "PON 不可跨 capture kit / build 复用"
+    },
+    "target_bed": {
+      "kind": "annotation",
+      "root_env": "NGS_TARGET_BED",
+      "expected_files": [
+        "targets.bed"
+      ],
+      "required_for": [
+        "wes",
+        "targeted_panel"
+      ],
+      "notes": "与 capture kit 一致"
+    }
+  },
+  "qc_metrics": [
+    {
+      "name": "mean_coverage",
+      "rule": "WGS ≥30x，WES ≥80x（目标区域），panel 按设计",
+      "source": "samtools depth/mosdepth",
+      "blocking": true
+    },
+    {
+      "name": "pct_target_ge_20x",
+      "rule": "≥90%（WES/panel）",
+      "source": "mosdepth",
+      "blocking": true
+    },
+    {
+      "name": "duplicate_rate",
+      "rule": "按建库方式；异常偏高需提示",
+      "source": "picard/samtools markdup",
+      "blocking": false
+    },
+    {
+      "name": "contamination",
+      "rule": "<3%（verifyBamID/FREEMIX）",
+      "source": "verifyBamID2",
+      "blocking": true
+    },
+    {
+      "name": "ti_tv",
+      "rule": "WGS 全基因组约 2.0-2.1；显著偏离提示质量问题",
+      "source": "bcftools stats",
+      "blocking": false
+    },
+    {
+      "name": "tumor_purity",
+      "rule": "低于 ~20% 时 somatic 结论降级",
+      "source": "ASCAT/Purple/估计",
+      "blocking": true
+    },
+    {
+      "name": "vaf_distribution",
+      "rule": "与预期 AF 目标一致；tumor-only 需显式 caveat",
+      "source": "bcftools/自定义",
+      "blocking": false
+    }
+  ],
+  "compliance": [
+    "人类遗传资源与隐私边界先确认",
+    "临床可操作性 out of scope，除非有验证过的临床流程",
+    "云上传需显式同意"
+  ],
+  "handoff": [
+    "解读/临床路径（需独立验证）",
+    "multi-omics（如与表达/甲基化联合）"
+  ]
+}

@@ -1,0 +1,198 @@
+{
+  "schema_version": "0.1.0",
+  "pack": "spatial",
+  "display_name": "空间组学",
+  "maturity": "planning",
+  "scope": "Visium/Xenium/CosMx 等空间转录组的计数、影像配准、空间分析与去卷积",
+  "intake_fields": [
+    {
+      "name": "platform",
+      "values": "Visium / Xenium / CosMx / 其他",
+      "blocking": true,
+      "why": "决定计数与坐标格式"
+    },
+    {
+      "name": "image_and_alignment",
+      "values": "图像 + 配准结果",
+      "blocking": true,
+      "why": "坐标与图像不对齐会导致空间结论错误"
+    },
+    {
+      "name": "roi",
+      "values": "组织区域定义",
+      "blocking": false,
+      "why": "影响背景与非组织区域判定"
+    },
+    {
+      "name": "deconvolution_reference",
+      "values": "单细胞参考 / 无",
+      "blocking": false,
+      "why": "决定能否做细胞类型去卷积"
+    }
+  ],
+  "pipelines": {
+    "visium_counts": {
+      "display_name": "Visium 计数",
+      "route_when": [
+        "visium",
+        "spaceranger"
+      ],
+      "preferred_workflow": "Space Ranger",
+      "tools": [
+        "spaceranger"
+      ],
+      "local_runner": null,
+      "essential_questions": [
+        "组织检测阈值？",
+        "图像质量？"
+      ],
+      "local_outputs": [
+        "filtered_feature_bc_matrix"
+      ]
+    },
+    "xenium_panel": {
+      "display_name": "Xenium 分析",
+      "route_when": [
+        "xenium",
+        "panel"
+      ],
+      "preferred_workflow": "Xenium Ranger + 下游分析",
+      "tools": [
+        "xeniumranger"
+      ],
+      "local_runner": null,
+      "essential_questions": [
+        "panel 与目标细胞类型匹配？",
+        "细胞分割方法？"
+      ],
+      "local_outputs": [
+        "cells.csv",
+        "transcripts.parquet"
+      ]
+    },
+    "registration": {
+      "display_name": "影像配准",
+      "route_when": [
+        "registration",
+        "alignment",
+        "image"
+      ],
+      "preferred_workflow": "Space Ranger 内置 / 手动配准",
+      "tools": [
+        "spaceranger",
+        "napari"
+      ],
+      "local_runner": null,
+      "essential_questions": [
+        "配准误差如何评估？",
+        "是否有组织形变？"
+      ],
+      "local_outputs": [
+        "alignment.json"
+      ]
+    },
+    "deconvolution": {
+      "display_name": "去卷积",
+      "route_when": [
+        "deconvolution",
+        "cell2location",
+        "rctd"
+      ],
+      "preferred_workflow": "cell2location / RCTD",
+      "tools": [
+        "cell2location",
+        "spacexr"
+      ],
+      "local_runner": null,
+      "essential_questions": [
+        "参考数据来源？",
+        "spot 多细胞混合程度？"
+      ],
+      "local_outputs": [
+        "cell_type_proportions.tsv"
+      ]
+    }
+  },
+  "resources": {
+    "probe_set": {
+      "kind": "library",
+      "root_env": "SPATIAL_PROBES",
+      "expected_files": [
+        "probes.csv"
+      ],
+      "required_for": [
+        "xenium",
+        "cosmx"
+      ],
+      "notes": "panel 版本影响可比性"
+    },
+    "tissue_image": {
+      "kind": "reference",
+      "root_env": "SPATIAL_IMAGE",
+      "expected_files": [
+        "tissue.tif"
+      ],
+      "required_for": [
+        "registration"
+      ],
+      "notes": "分辨率与染色批次记录"
+    },
+    "sc_reference": {
+      "kind": "database",
+      "root_env": "SPATIAL_SC_REF",
+      "expected_files": [
+        "reference.h5ad"
+      ],
+      "required_for": [
+        "deconvolution"
+      ],
+      "notes": "组织匹配"
+    }
+  },
+  "qc_metrics": [
+    {
+      "name": "spots_under_tissue",
+      "rule": "比例合理，异常低提示组织检测失败",
+      "source": "Space Ranger",
+      "blocking": true
+    },
+    {
+      "name": "counts_per_spot",
+      "rule": "按组织类型与 panel 设阈值",
+      "source": "计数矩阵",
+      "blocking": true
+    },
+    {
+      "name": "image_alignment",
+      "rule": "配准误差在可接受范围",
+      "source": "配准/qc",
+      "blocking": true
+    },
+    {
+      "name": "probe_efficiency",
+      "rule": "panel 检出率达标",
+      "source": "panel 统计",
+      "blocking": false
+    },
+    {
+      "name": "off_tissue_fraction",
+      "rule": "非组织区域 reads 低",
+      "source": "Space Ranger",
+      "blocking": false
+    },
+    {
+      "name": "spatial_autocorrelation",
+      "rule": "关键基因呈空间结构（Moran's I）",
+      "source": "squidpy",
+      "blocking": false
+    }
+  ],
+  "compliance": [
+    "人类空间数据的影像/隐私",
+    "临床病理 out of scope"
+  ],
+  "handoff": [
+    "multi-omics（空间 + 单细胞）",
+    "病理/影像联合分析"
+  ]
+}

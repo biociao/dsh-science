@@ -1,0 +1,189 @@
+{
+  "schema_version": "0.1.0",
+  "pack": "proteomics",
+  "display_name": "蛋白组",
+  "maturity": "planning",
+  "scope": "DDA/DIA 蛋白质组、PTM 富集与定量比较",
+  "intake_fields": [
+    {
+      "name": "acquisition",
+      "values": "DDA / DIA / PRM / top-down",
+      "blocking": true,
+      "why": "决定搜索策略与是否需要谱图库"
+    },
+    {
+      "name": "enzyme_and_mods",
+      "values": "胰蛋白酶等 + 固定/可变修饰",
+      "blocking": true,
+      "why": "直接影响肽段与 FDR"
+    },
+    {
+      "name": "labeling",
+      "values": "label-free / TMT / SILAC",
+      "blocking": true,
+      "why": "决定定量归一方式"
+    },
+    {
+      "name": "fdr_level",
+      "values": "PSM / peptide / protein",
+      "blocking": true,
+      "why": "不同层级 FDR 不可混用"
+    }
+  ],
+  "pipelines": {
+    "dda": {
+      "display_name": "DDA 搜索",
+      "route_when": [
+        "dda",
+        "maxquant",
+        "fragpipe"
+      ],
+      "preferred_workflow": "MaxQuant / FragPipe",
+      "tools": [
+        "maxquant",
+        "fragpipe",
+        "comet"
+      ],
+      "local_runner": null,
+      "essential_questions": [
+        "酶切与修饰？",
+        "FDR 层级？"
+      ],
+      "local_outputs": [
+        "proteinGroups.txt",
+        "peptides.txt"
+      ]
+    },
+    "dia": {
+      "display_name": "DIA 定量",
+      "route_when": [
+        "dia",
+        "dia-nn",
+        "spectronaut"
+      ],
+      "preferred_workflow": "DIA-NN / Spectronaut",
+      "tools": [
+        "diann",
+        "spectronaut"
+      ],
+      "local_runner": null,
+      "essential_questions": [
+        "谱图库来源？",
+        "仪器与梯度是否匹配？"
+      ],
+      "local_outputs": [
+        "report.tsv",
+        "protein matrix"
+      ]
+    },
+    "ptm": {
+      "display_name": "PTM 分析",
+      "route_when": [
+        "phospho",
+        "ptm",
+        "localization"
+      ],
+      "preferred_workflow": "MaxQuant PTM / ptmRS",
+      "tools": [
+        "maxquant",
+        "ptmrs"
+      ],
+      "local_runner": null,
+      "essential_questions": [
+        "富集方法与输入量？",
+        "定位概率阈值？"
+      ],
+      "local_outputs": [
+        "ptm_sites.tsv"
+      ]
+    }
+  },
+  "resources": {
+    "protein_fasta": {
+      "kind": "reference",
+      "root_env": "PROT_FASTA",
+      "expected_files": [
+        "proteome.fa",
+        "contaminants.fa"
+      ],
+      "required_for": [
+        "search"
+      ],
+      "notes": "含 decoy 生成策略"
+    },
+    "spectral_library": {
+      "kind": "library",
+      "root_env": "PROT_LIBRARY",
+      "expected_files": [
+        "library.dlib/tsv"
+      ],
+      "required_for": [
+        "dia"
+      ],
+      "notes": "与仪器/梯度匹配"
+    },
+    "ptm_reference": {
+      "kind": "annotation",
+      "root_env": "PROT_PTM",
+      "expected_files": [
+        "ptm_sites.tsv"
+      ],
+      "required_for": [
+        "ptm"
+      ],
+      "notes": "定位概率阈值需记录"
+    }
+  },
+  "qc_metrics": [
+    {
+      "name": "psm_fdr",
+      "rule": "1%（探索性可 5%，须写明）",
+      "source": "search engine",
+      "blocking": true
+    },
+    {
+      "name": "protein_fdr",
+      "rule": "与 PSM FDR 分开报告",
+      "source": "search engine",
+      "blocking": true
+    },
+    {
+      "name": "mass_accuracy",
+      "rule": "ppm 分布居中且窄",
+      "source": "search engine",
+      "blocking": false
+    },
+    {
+      "name": "missed_cleavages",
+      "rule": "比例合理（酶切效率）",
+      "source": "search engine",
+      "blocking": false
+    },
+    {
+      "name": "identifications_per_sample",
+      "rule": "与上样量/梯度匹配",
+      "source": "汇总",
+      "blocking": false
+    },
+    {
+      "name": "qc_sample_cv",
+      "rule": "pooled QC 的 CV 达标",
+      "source": "QC 样本",
+      "blocking": true
+    },
+    {
+      "name": "ptm_localization",
+      "rule": "定位概率阈值（如 >0.75）",
+      "source": "ptmRS",
+      "blocking": false
+    }
+  ],
+  "compliance": [
+    "临床蛋白标志物 out of scope",
+    "样本来源伦理与许可"
+  ],
+  "handoff": [
+    "multi-omics（蛋白-转录联合）",
+    "通路/网络分析"
+  ]
+}

@@ -1,0 +1,205 @@
+{
+  "schema_version": "0.1.0",
+  "pack": "transcriptomics",
+  "display_name": "转录组",
+  "maturity": "execution",
+  "scope": "bulk RNA-seq 的 FASTQ→count、表达矩阵 QC、差异表达与下游解释",
+  "intake_fields": [
+    {
+      "name": "input_mode",
+      "values": "raw_counts / normalized_expression / log_expression",
+      "blocking": true,
+      "why": "决定用 DESeq2/edgeR 还是 limma；用错会引入系统性偏差"
+    },
+    {
+      "name": "strandedness",
+      "values": "forward / reverse / unstranded / unknown",
+      "blocking": true,
+      "why": "影响定量与计数正确性"
+    },
+    {
+      "name": "design_and_contrasts",
+      "values": "因子 + 对比表",
+      "blocking": true,
+      "why": "DE 的统计模型由设计矩阵决定"
+    },
+    {
+      "name": "replicates",
+      "values": "每组 n",
+      "blocking": true,
+      "why": "n=1 无法估计离散度，只能给描述性结果"
+    }
+  ],
+  "pipelines": {
+    "counts_qc": {
+      "display_name": "FASTQ→count + QC",
+      "route_when": [
+        "fastq",
+        "quantification",
+        "salmon"
+      ],
+      "preferred_workflow": "FastQC/MultiQC + Salmon",
+      "tools": [
+        "fastqc",
+        "multiqc",
+        "salmon"
+      ],
+      "local_runner": "run_bulk_rnaseq_counts_qc.py",
+      "essential_questions": [
+        "单端还是双端？",
+        "strandedness 是否已知？",
+        "rRNA 去除方式？"
+      ],
+      "local_outputs": [
+        "rnaseq_salmon/matrices/{tpm,num_reads}.tsv",
+        "qc/multiqc"
+      ]
+    },
+    "differential_expression": {
+      "display_name": "差异表达",
+      "route_when": [
+        "differential_expression",
+        "deseq2",
+        "deg"
+      ],
+      "preferred_workflow": "DESeq2 / edgeR / limma（自动选择）",
+      "tools": [
+        "rscript",
+        "deseq2",
+        "edger",
+        "limma"
+      ],
+      "local_runner": "run_bulk_rnaseq_de.py",
+      "essential_questions": [
+        "矩阵是 raw counts 还是已标准化？",
+        "对比表与协变量怎么定义？",
+        "低表达过滤策略？"
+      ],
+      "local_outputs": [
+        "results/*.tsv",
+        "qc/design_diagnostics.tsv"
+      ]
+    },
+    "splicing": {
+      "display_name": "可变剪接",
+      "route_when": [
+        "splicing",
+        "rmats",
+        "isoform"
+      ],
+      "preferred_workflow": "rMATS / SUPPA2 / IsoQuant",
+      "tools": [
+        "rmats",
+        "suppa",
+        "isoquant"
+      ],
+      "local_runner": null,
+      "essential_questions": [
+        "是否有生物学重复？",
+        "注释版本？"
+      ],
+      "local_outputs": [
+        "splicing/*.tsv"
+      ]
+    },
+    "fusion": {
+      "display_name": "融合基因",
+      "route_when": [
+        "fusion",
+        "star-fusion",
+        "arriba"
+      ],
+      "preferred_workflow": "STAR-Fusion / Arriba",
+      "tools": [
+        "star-fusion",
+        "arriba"
+      ],
+      "local_runner": null,
+      "essential_questions": [
+        "是否肿瘤样本？",
+        "是否需要与 DNA 层面互证？"
+      ],
+      "local_outputs": [
+        "fusions/*.tsv"
+      ]
+    }
+  },
+  "resources": {
+    "transcriptome": {
+      "kind": "reference",
+      "root_env": "RNA_TRANSCRIPTOME",
+      "expected_files": [
+        "transcriptome.fa",
+        "tx2gene.tsv"
+      ],
+      "required_for": [
+        "salmon_quant"
+      ],
+      "notes": "与 GTF 版本一致"
+    },
+    "annotation_gtf": {
+      "kind": "annotation",
+      "root_env": "RNA_GTF",
+      "expected_files": [
+        "genes.gtf"
+      ],
+      "required_for": [
+        "star",
+        "featurecounts"
+      ],
+      "notes": "版本写入 envs/ 与 manifest"
+    }
+  },
+  "qc_metrics": [
+    {
+      "name": "mapping_rate",
+      "rule": ">70%（物种/建库依赖）",
+      "source": "STAR/Salmon log",
+      "blocking": true
+    },
+    {
+      "name": "strandedness_check",
+      "rule": "与声明一致；不一致则纠正或告警",
+      "source": "infer_experiment/ Salmon",
+      "blocking": true
+    },
+    {
+      "name": "rrna_fraction",
+      "rule": "<10%（视建库）",
+      "source": "FastQ Screen/统计",
+      "blocking": false
+    },
+    {
+      "name": "library_size",
+      "rule": "满足 DE 检测目标",
+      "source": "counts 汇总",
+      "blocking": false
+    },
+    {
+      "name": "sample_outlier",
+      "rule": "PCA/相关矩阵离群需解释",
+      "source": "PCA/correlation",
+      "blocking": false
+    },
+    {
+      "name": "design_rank",
+      "rule": "设计矩阵满秩、无混杂",
+      "source": "R model.matrix",
+      "blocking": true
+    },
+    {
+      "name": "replicate_consistency",
+      "rule": "组内相关高于组间",
+      "source": "相关矩阵",
+      "blocking": false
+    }
+  ],
+  "compliance": [
+    "人类表达数据按受控/去标识要求处理",
+    "云上传需显式同意"
+  ],
+  "handoff": [
+    "通路/富集分析",
+    "multi-omics（蛋白/代谢联合）"
+  ]
+}

@@ -10,3 +10,6 @@ node_modules/
 .test-workspace/
 test/.tmp/
 test/.e2e-home/
+
+# Biomni-mode runtime state (registry / plan / reflect) — never commit
+.biomni/

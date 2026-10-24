@@ -430,7 +430,7 @@ async function* dispatchWithPassbackRetry(ctx, options) {
 
 // ── 虚拟 provider 适配器 ────────────────────────────────────────────────────
 
-function makeVirtualAdapter(ctx, storeOf) {
+function makeVirtualAdapter(ctx, storeOf, classifyCache = new Map()) {
   const schemeOf = (schemeId) => {
     const store = storeOf();
     const scheme =
@@ -466,7 +466,6 @@ function makeVirtualAdapter(ctx, storeOf) {
 
   // LLM 前置分类器：key = sessionId#消息哈希 → 进行中的 Promise（落定后
   // Promise.resolve(命中) 对普通值与 Promise  alike 有效，无需替换缓存项）。
-  const classifyCache = new Map();
   const classifyTier = (cfg, sessionId, taskText) => {
     const c = cfg.routing.classify;
     if (!c || !taskText) return Promise.resolve(null);
@@ -529,6 +528,21 @@ function makeVirtualAdapter(ctx, storeOf) {
     providerRetryPolicy() {
       return undefined;
     },
+    imageRequestPricing() {
+      // Routing may select a different tier for each call; no fixed image price.
+      return undefined;
+    },
+    async prepareCall(provider, schemeId, signal) {
+      signal?.throwIfAborted();
+      // DSH 0.2 binds metadata and dispatch together. Pin the scheme store so
+      // edits during a pending call cannot mix the old model with a new route.
+      const snapshot = structuredClone(storeOf());
+      const adapter = makeVirtualAdapter(ctx, () => snapshot, classifyCache);
+      return {
+        model: await adapter.resolveModel(provider, schemeId, signal),
+        stream: (options) => adapter.stream(options),
+      };
+    },
     async listModels() {
       const store = storeOf();
       if (!store.enabled) return [];
@@ -546,12 +560,12 @@ function makeVirtualAdapter(ctx, storeOf) {
           inputModalities: ["text", "image"],
         }));
     },
-    async resolveModel(provider, schemeId) {
+    async resolveModel(provider, schemeId, signal) {
       const { scheme } = schemeOf(schemeId);
       const target = scheme ? resolveTierTarget(scheme.tiers ?? {}, "default") : null;
       if (target) {
         try {
-          const info = await ctx.llm.resolveModelInfo(target.provider, target.model);
+          const info = await ctx.llm.resolveModelInfo(target.provider, target.model, signal);
           if (info && typeof info === "object") {
             return {
               ...info,
@@ -563,6 +577,7 @@ function makeVirtualAdapter(ctx, storeOf) {
             };
           }
         } catch {
+          signal?.throwIfAborted();
           /* 委托失败走通用回落 */
         }
       }

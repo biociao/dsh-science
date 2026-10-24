@@ -6,12 +6,19 @@ dsh-science 会话在工作区之间“串门”的根因：DSH Web 前端的共
 （侧栏「新会话」按钮 / 工作区浏览器）在解析目标工作区时使用隐式回落链：
 
 ```js
+// dsh <= 0.1.0-rc.6（@deepseek-ai/dsh-client-runtime）
 const target = workspaceId ?? currentWorkspaceId ?? workspace.recentWorkspaceId
+
+// dsh >= 0.1.5（@deepseek-ai/dsh-client-ui-workspace）—— 只是把第三项换了名字，
+// 回落本身没变：`recent` 由 recentWorkspace(items, byId) 计算得到。
+const recent = workspace.phase === "ready" && sessions.phase === "ready"
+  ? recentWorkspace(workspace.items, sessions.byId) : void 0;
+const target = workspaceId ?? currentWorkspaceId ?? recent
 ```
 
 - `workspaceId` — 显式指定的工作区（例如从工作区浏览器进入）；
 - `currentWorkspaceId` — 当前会话所在的工作区；
-- `recentWorkspaceId` — **最近使用过的工作区（隐式回落）**。
+- `recentWorkspaceId` / `recent` — **最近使用过的工作区（隐式回落）**。
 
 最后一段回落意味着：任何驱动 Web UI 的自动化（Playwright 脚本、程序化创建会话）只要不显式
 指定工作区，就会把新会话开进“最近使用过”的项目里——即使那个项目与本次任务毫无关系。
@@ -19,11 +26,12 @@ const target = workspaceId ?? currentWorkspaceId ?? workspace.recentWorkspaceId
 
 ## 修复 Fix
 
-一行改动，去掉 `recentWorkspaceId` 回落：
+一行改动，去掉「最近工作区」回落：
 
 ```js
 // before
-const target = workspaceId ?? currentWorkspaceId ?? workspace.recentWorkspaceId
+const target = workspaceId ?? currentWorkspaceId ?? workspace.recentWorkspaceId  // <= 0.1.0-rc.6
+const target = workspaceId ?? currentWorkspaceId ?? recent                       // >= 0.1.5
 // after
 const target = workspaceId ?? currentWorkspaceId
 ```
@@ -48,8 +56,16 @@ node scripts/patch-session-isolation.mjs status
 node scripts/patch-session-isolation.mjs revert
 ```
 
-目标文件自动探测自全局 `@deepseek-ai/dsh` 安装（`<npm-root>/@deepseek-ai/dsh/node_modules/
-@deepseek-ai/dsh-client-runtime/lib/client.js`）；如需指定路径：
+目标文件自动探测自全局 `@deepseek-ai/dsh` 安装；**0.1.5 起该文件从
+`@deepseek-ai/dsh-client-runtime` 迁到了 `@deepseek-ai/dsh-client-ui-workspace`**
+（脚本按新→旧顺序依次探测两个包）：
+
+| dsh 版本 | 目标文件 |
+| --- | --- |
+| ≥ 0.1.5 | `<npm-root>/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-ui-workspace/lib/client.js` |
+| ≤ 0.1.0-rc.6 | `<npm-root>/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-runtime/lib/client.js` |
+
+如需指定路径：
 
 ```bash
 node scripts/patch-session-isolation.mjs apply --file <path-to-client.js>

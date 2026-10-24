@@ -21,10 +21,15 @@
 
 # The research persona, shadowing the deployment default for this agent.
 # `{{model}}` and `{{cwd}}` resolve from the agent's own route and workspace.
+#
+# dsh >= 0.1.5 的 @deepseek-ai/dsh-persona 把 schema 从 { text, complete,
+# includeRuntimeContext } 改为 { prefix(必填), suffix, complete,
+# includeRuntimeContext }；旧键 `text` 已不存在，缺 prefix 会让该行挂载失败
+# （$.prefix missing required value）。整段人设因此放 `prefix`，`suffix` 留空。
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
-    text: >-
+    prefix: >-
       You are a scientific research agent powered by the {{model}} model, working in
       {{cwd}}. Your specialty is life science: genomics, human health, pathogens, and
       bioinformatics. You run research like Claude Science: an iterative ReAct loop
@@ -46,6 +51,24 @@
       supported/refuted/inconclusive）→ Conclude（总结并 research_phase 推进阶段）→
       Next Question（research_findings 的 nextQuestion 开启下一轮）。任何一步拿不准时回到
       问题本身重新审视。
+
+      ## 技术路线图（路线图即项目计划）
+      多步骤工作不要只在对话里推进 —— 用技术路线图把 步骤/issue/里程碑 显式化：
+      1. 开工前 roadmap_show 看现状；未初始化则 roadmap_init。把本会话要推进的步骤用
+         roadmap_apply 一次建好（nodes 用 ref 别名，edges 用 ref 引用；关系只取四类语义：
+         串联 serial / 并联 parallel / 反馈 feedback / 循环 loop）。重复 apply 是幂等的
+         （按 id/ref/同名 title 认领已有节点），迭代时直接再 apply 一版增量即可。
+      2. 每个节点写清 strategy（分析策略）、params（超参）、tests（测试），并用 refs 关联
+         科学对象（{experiment:"E01", artifact:"tab@2", hypothesis:"H1"}）—— 这样"不同分析
+         策略、超参、测试的上下游逻辑关系"才可回溯。
+      3. 节点推进/换方案时改 status/params/tests 要显式备注原因（roadmap_node_update 的
+         note），引擎会自动追加版本（画布拖拽只改布局、不进版本）；要退回旧策略用
+         roadmap_node_revert，历史永不删除。查历史与字段级差异用 roadmap_node_history。
+      4. 有执行进度时（跑完一批样本、某个步骤做到 x/y），用 roadmap_node_update 的 progress
+         如实记录（{done,total,unit} 或 {percent}）—— 画布会按比例填充该步骤的图形块，工具栏/「进度」
+         页给出总进度与分泳道汇总；进度变更同样进版本，可回溯"什么时候从 30/120 推到 90/120"。
+         没有依据就不要编造进度。
+      5. 需要给人看时 roadmap_render 输出 mermaid（可贴进 README/论文方法学附图）。
 
       ## 工件与溯源
       重要的结果（数据表、变异列表、图表、模型输出）必须用 artifact_save 保存为版本化工件
@@ -69,9 +92,14 @@
          只运行可信命令；长任务提前告知用户超时设置。
 
       ## 评审
-      对关键论断（论文中的主张、重大发现）发起评审：按 scientific-reviewer 技能提取论断，
-      收集执行记录（experiment 日志、工件溯源），用 subagent_fork 启动评审子代理对照核查，
-      结论用 research_review 归档。评审通过前不要把论断当作定论。
+      评审由 HOST 平面的 scientific-reviewer 引擎自动执行（事件驱动：新工件/假设更新/manuscript
+      变更触发；评审模型由 bundle config 显式指定，与本会话模型无关；结论落盘 reviews/Rnn/）。
+      你的职责：① 让论断可审——实验 log.md 完整、重要结果用 artifact_save 归档溯源齐全、
+      manuscript 数字可回溯到工件；② 关注 research_* 工具返回尾部的「待处理评审」提醒，
+      读 reviews/Rnn/report.md 的问题清单并处置（补分析/改措辞/降级为推测）——修复后会产生
+      新事件自动复审；③ 评审引擎缺席或被禁用时，按 scientific-reviewer 技能的手动兜底流程
+      发起评审子代理（用 agentOptions 显式指定强模型），结论用 research_review 归档。
+      评审通过前不要把论断当作定论。
 
       ## 文献与并行
       - 文献调研用 web_search 检索，按 literature-connector 技能维护 literature/ 下的笔记与
@@ -127,6 +155,27 @@
     requireApproval: true
     requireHostAccess: true
 
+# 科研工作台（多项目分类与状态管理）：解决"一个项目根 = 一个 research-manifest.json"
+# 带来的单项目视角盲区。它维护 <项目根>/.dsh/workbench.json 注册表（分类/标签/优先级/
+# 生命周期状态/备注），自动扫描工作区子目录里含 research-manifest.json 的项目收录，
+# 并聚合每个项目的状态（循环阶段、假设/实验状态分布、工件数、待处理评审、远程作业、
+# 最近活跃）。工具：research_workbench / research_project_list / research_project_show /
+# research_project_register / research_project_classify（全部结构化 JSON 输出）。
+# 宿主侧 Web 面板 REST API 只在 profile bundle（cordis.patch.yml）挂载，不进 preset。
+- id: science-research-workbench
+  name: ./engines/workbench.mjs
+
+# 技术路线图（issue board → 路线图模块）：每个 步骤/issue/step/milestone 是画布上的节点，
+# 节点之间用带类型的关系边表达上下游逻辑 —— 串联 serial / 并联 parallel / 反馈 feedback /
+# 循环 loop。数据落在 <项目根>/.dsh/roadmap.json；节点带版本管理（语义字段变更追加版本，
+# 画布拖拽只改布局不进版本；回滚是追加式，历史永不删除），便于项目迭代中理清不同分析策略、
+# 超参、测试的上下游关系。工具：roadmap_init / roadmap_show / roadmap_node_add /
+# roadmap_node_update / roadmap_node_history / roadmap_node_revert / roadmap_link /
+# roadmap_apply（AI 批量生成）/ roadmap_layout / roadmap_render（mermaid/dot）。
+# 宿主侧画布 REST API（/dsh-science/roadmap/*）与 Web 画布面板只在 profile bundle 挂载。
+- id: science-roadmap
+  name: ./engines/roadmap.mjs
+
 # ── shell ───────────────────────────────────────────────────────────────────
 
 - id: tool-bash
@@ -164,6 +213,10 @@
   name: '@deepseek-ai/dsh-tool-skill'
 
 # ── goals ───────────────────────────────────────────────────────────────────
+
+# DSH 0.2 的 Web 宿主禁用全局 /goal；各 preset 在自己的作用域注册。
+- id: command-goal
+  name: '@deepseek-ai/dsh-command-goal'
 
 - id: tool-goal
   name: '@deepseek-ai/dsh-tool-goal'
@@ -233,6 +286,7 @@
       config:
         provider: spawn
         toolName: subagent
+        modelSelectionSettings: true
         backgroundMode: continuable
 
     - id: tool-subagent-fork
@@ -248,7 +302,7 @@
       config:
         provider: codex
         toolName: subagent_codex
-        enableRunInBackground: false
+        backgroundMode: one-shot
         maxDepth: provider-managed
 
     - id: tool-subagent-claude-code
@@ -257,11 +311,11 @@
       config:
         provider: claude-code
         toolName: subagent_claude_code
-        enableRunInBackground: false
+        backgroundMode: one-shot
         maxDepth: provider-managed
 
-    - id: workflow-worker-thread
-      name: '@deepseek-ai/dsh-workflow-worker-thread'
+    - id: workflow-ptc
+      name: '@deepseek-ai/dsh-workflow-ptc'
       config:
         provider: spawn
 
@@ -284,8 +338,17 @@
   config:
     allowParallelInProgress: true
 
+# 刻意的偏离：stock `standard` preset 为 `fetch: true`，这里保持 `false`（只保留
+# web_search，不开放 web_fetch 抓取）。这是产品决定 —— 若需要抓取网页全文，
+# 把它改成 true 即可（skills/literature-connector 走的是 web_search，不依赖 fetch）。
 - id: tool-web
   name: '@deepseek-ai/dsh-tool-web'
   config:
     fetch: false
     searchTimeoutMs: 60000
+
+# `present`（交付物声明）自 dsh 0.1.5 起**只由 agent preset 提供**——宿主组合
+# （dsh-base / dsh-web-app）不含该行，所以 clone 自旧版 standard preset 而漏掉它
+# 就会让本 preset 的 agent 完全没有 present 工具。补上以对齐 stock standard。
+- id: present
+  name: '@deepseek-ai/dsh-tool-present'

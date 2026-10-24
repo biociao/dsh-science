@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 安装 dsh-science 的 10 个技能到用户技能根（~/.dsh/skills，遵循 $DSH_HOME）。
+# 安装 dsh-science 的技能到用户技能根（~/.dsh/skills，遵循 $DSH_HOME）或项目 .dsh/skills。
 # 用法：
 #   bash scripts/install-skills.sh            # 装到 ~/.dsh/skills（全机所有项目可用）
 #   bash scripts/install-skills.sh workspace  # 装到当前项目 .dsh/skills
@@ -37,4 +37,4 @@ done
 echo "✔ 已安装 $count 个技能到 $DST"
 echo "  技能列表：research-loop / science-project-setup / artifact-provenance / scientific-reviewer /"
 echo "  literature-connector / parallel-delegation / manuscript-writing / bioinformatics-toolkit /"
-echo "  conda-environments / data-inventory / remote-compute"
+echo "  conda-environments / data-inventory / remote-compute / biomni-agent / ngs-analysis-workbench / bioinformatics-habits"

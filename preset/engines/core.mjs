@@ -29,6 +29,7 @@ export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // ERR_QUOTA        超过大小配额
 // ERR_LOCK_TIMEOUT 等待文件锁超时
 // ERR_CONFLICT     并发冲突
+// ERR_REVIEW_GATE  评审门禁拦截（scientific-reviewer gate 模式，research-loop）
 // ERR_HOST         主机未注册/未知（remote-compute）
 // ERR_SSH          ssh/scp 执行失败（remote-compute）
 // ERR_ACCESS       主机未获本项目授权或审批被拒（remote-compute）
@@ -266,21 +267,110 @@ export async function appendAudit(root, entry) {
 //   3. audit 钩子：每次工具调用（成功/失败）记入审计日志
 // 注：execute 抛错时交由宿主框架向模型展示错误，行为更可预测。
 
+// ── 工具参数编译（对齐 dsh defineTool 的 parameterSchemaSpecToJsonSchema）─────
+// dsh 的 defineTool 会把扁平参数表（{paramName: {type,description,required,...}}）编译成
+// object-rooted JSON Schema（{type:"object", properties, required}）。但 dsh-science 引擎
+// 用自定义 makeTool 直接返回扁平参数表，注册后会被当成函数 schema 传给 LLM provider，
+// provider 要求顶层 type:"object"，否则报 "Invalid schema for function ... got type: null"。
+// 这里复刻 dsh 编译：扁平表 → {type:"object", properties, required}，与 defineTool 输出一致
+// （description 保留、required 收集、items/properties/oneOf 递归）。
+
+const SCHEMA_KEYS = ["properties", "items", "oneOf", "required", "additionalProperties", "enum", "const", "$ref"];
+
+function isPlainObject(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+function compileValueSchema(v) {
+  if (!isPlainObject(v)) return v ?? { type: "string" };
+  const out = {};
+  for (const [k, val] of Object.entries(v)) {
+    if (k === "required") continue; // 属性级标记，不属于值 schema
+    if (k === "items") { out.items = compileValueSchema(val); continue; }
+    if (k === "properties" && isPlainObject(val)) {
+      out.properties = {};
+      for (const [pk, pv] of Object.entries(val)) out.properties[pk] = compileValueSchema(pv);
+      continue;
+    }
+    if (k === "oneOf" && Array.isArray(val)) { out.oneOf = val.map((x) => compileValueSchema(x)); continue; }
+    out[k] = val;
+  }
+  return out;
+}
+
+export function compileParams(spec) {
+  if (!isPlainObject(spec)) return { type: "object", properties: {} };
+  // 已是 object-rooted schema（顶层 type 为字符串且带结构关键字）→ 直接透传
+  if (typeof spec.type === "string" && spec.type !== "" && SCHEMA_KEYS.some((k) => Object.hasOwn(spec, k))) {
+    return spec;
+  }
+  const properties = {};
+  const required = [];
+  for (const [name, v] of Object.entries(spec)) {
+    if (isPlainObject(v) && v.required === true) required.push(name);
+    properties[name] = compileValueSchema(v);
+  }
+  return { type: "object", properties, ...(required.length ? { required } : {}) };
+}
+
+// ── 工具返回值清洗（保证 lossless JSON，规避 "value is not lossless JSON"）──
+// dsh 会对工具返回值做 snapshotJsonValue，含 undefined / NaN / Infinity / 函数 / Date /
+// 循环引用的值会被判为"非 lossless JSON"并抛 ToolOutputError。引擎的 execute 若返回
+// 含 undefined 的对象（如 step: args?.step 当调用方未传时），就会触发。这里统一深清洗：
+//   对象：丢弃值为 undefined 的键；数组：undefined 元素转 null；非有限数转 null；其余透传。
+
+export function sanitizeJson(v) {
+  if (v === undefined || v === null) return v ?? null;
+  if (typeof v === "string" || typeof v === "boolean") return v;
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (Array.isArray(v)) return v.map((x) => (x === undefined ? null : sanitizeJson(x)));
+  if (typeof v === "object") {
+    const out = {};
+    for (const [k, val] of Object.entries(v)) {
+      if (val === undefined) continue;
+      out[k] = sanitizeJson(val);
+    }
+    return out;
+  }
+  // 函数 / symbol / bigint 等：不表达为 JSON，置 null
+  return null;
+}
+
+/**
+ * 渲染工具返回值给模型。
+ * - 未声明 outputSchema（非结构化）且返回字符串 → 原样输出（保持 research_* /
+ *   artifact_list 等既有工具的可读输出不变）；
+ * - 其余（对象/数组/数字，或显式 outputSchema 的结构化工具）→ 缩进 JSON，
+ *   避免对象被 `String(value)` 渲染成 "[object Object]"。
+ */
+function renderToolValue(value, structured) {
+  if (!structured && typeof value === "string") return value;
+  const json = JSON.stringify(value, null, 2);
+  return json === undefined ? String(value) : json;
+}
+
 export function makeTool({ name, description, parameters, execute, presentTitle, outputSchema, audit }) {
   const structured = Boolean(outputSchema);
   return {
     name,
     description,
-    parameters,
+    parameters: compileParams(parameters),
     output: {
-      schema: outputSchema ?? { type: "string" },
+      // dsh 会按 `output.schema` 校验 execute 的返回值（dsh-tools createSuccessResult
+      // → validateJsonSchemaValue）。旧默认值 `{type:"string"}` 让「返回对象但未声明
+      // outputSchema」的工具直接判 INVALID_TOOL_OUTPUT（`"value" must be a string`）——
+      // biomni_* 全部 10 个工具曾因此在真实会话中不可用（mock ctx 单测直接调 execute，
+      // 绕过框架校验，故一直未被发现）。
+      // `{}` 属于 dsh 支持的 JSON Schema 子集且不施加类型约束（接受任意 JSON 值），
+      // 作为「无结构化契约」的默认值；显式声明 outputSchema 的工具仍走严格校验。
+      schema: outputSchema ?? {},
       render: (_args, value) => [
-        { type: "text", text: structured ? JSON.stringify(value, null, 2) : String(value) },
+        { type: "text", text: renderToolValue(value, structured) },
       ],
     },
     async execute(args, exec) {
       try {
-        const value = await execute(args, exec);
+        const value = sanitizeJson(await execute(args, exec));
         if (audit) {
           await appendAudit(await auditRoot(audit, args, exec), { tool: name, ok: true });
         }
