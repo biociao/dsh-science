@@ -141,6 +141,8 @@ ok("bundle 含三段式 section（置顶与最近）", bundle.includes("dshsci-s
 ok("中段滚动容器 overflow 强制 auto（!important）", bundle.includes('overflow-y:auto!important') && bundle.includes('data-dshsci-scroll="1"'));
 ok("最近会话经 uiWorkspace.openSession 打开", bundle.includes("uiWorkspace") && bundle.includes("openSession"));
 ok("编辑项目对话框与目录选择存在", bundle.includes("openEditDialog") && bundle.includes("dshsci-edit-path") && bundle.includes("pickDirectory"));
+// 回归护栏：启动时的 pins 读取若慢返回，不能覆盖用户刚完成的 pin/unpin（否则表现为点一次不生效、再点一次才生效）。
+ok("置顶写入防过期快照覆盖", bundle.includes("pinsRevision") && bundle.includes("mutatePins") && bundle.includes("fetchPins"));
 const pkgJson = JSON.parse(readFileSync(path.join(pkg, "package.json"), "utf8"));
 ok("package.json exports[\"./client\"] 指向 bundle", pkgJson?.exports?.["./client"] === "./client/remote-hosts-ui/lib/client.js");
 ok("dsh.client 声明保留 web platform", pkgJson?.dsh?.client?.platform === "web");

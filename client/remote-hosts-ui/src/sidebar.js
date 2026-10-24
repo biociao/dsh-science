@@ -286,6 +286,11 @@ function applySidebar(ctx) {
   if (typeof window === "undefined" || typeof document === "undefined") return
   if (typeof fetch !== "function") return
 
+  // 每次本地写置顶（pin/unpin）都自增：用于丢弃「写之前发起、写之后才返回」的
+  // 过期 pins 读取，避免慢请求把刚置顶的项目从列表里覆盖掉（表现为点一次不生效、
+  // 再点一次才生效）。
+  let pinsRevision = 0
+
   const state = {
     pins: [],
     platform: "",
@@ -746,11 +751,30 @@ function applySidebar(ctx) {
   }
 
   // ── 编辑项目（改名 / 更换工作区目录）──
+  // 读取宿主置顶列表；若读取期间发生过本地 pin/unpin，返回的旧快照直接丢弃。
+  const fetchPins = async () => {
+    const revision = pinsRevision
+    const result = await sbApi("pins")
+    if (revision !== pinsRevision) return false
+    if (result && result.ok !== false && Array.isArray(result.pins)) {
+      state.pins = sbNormalizePins(result.pins)
+      state.sig = ""
+      return true
+    }
+    return false
+  }
+
+  // 置顶写入：自增 revision 让并发中的旧读取失效，并优先采用宿主返回的权威列表。
+  const mutatePins = async (method, body) => {
+    pinsRevision += 1
+    const result = await sbApi(method, body)
+    if (result && result.ok === false) throw new Error(result.error || "置顶操作失败")
+    if (result && Array.isArray(result.pins)) state.pins = sbNormalizePins(result.pins)
+    return result
+  }
+
   const refreshPins = async () => {
-    try {
-      const result = await sbApi("pins")
-      if (result && result.ok !== false) { state.pins = sbNormalizePins(result.pins); state.sig = "" }
-    } catch { /* ignore */ }
+    try { await fetchPins() } catch { /* ignore */ }
   }
 
   const closeEditDialog = () => {
@@ -761,8 +785,8 @@ function applySidebar(ctx) {
     const wasPinned = state.pins.some((pin) => pin.workspaceId === oldInfo.workspaceId)
     if (!wasPinned) return
     try {
-      await sbApi("pin", { workspaceId: String(created.workspaceId), path: created.path || "", title: title || created.title || "" })
-      await sbApi("unpin", { workspaceId: oldInfo.workspaceId })
+      await mutatePins("pin", { workspaceId: String(created.workspaceId), path: created.path || "", title: title || created.title || "" })
+      await mutatePins("unpin", { workspaceId: oldInfo.workspaceId })
       if (state.pinnedExpanded.has(oldInfo.workspaceId)) {
         state.pinnedExpanded.delete(oldInfo.workspaceId)
         state.pinnedExpanded.add(String(created.workspaceId))
@@ -885,7 +909,7 @@ function applySidebar(ctx) {
           }
         } else if (desiredTitle !== info.title && state.pins.some((pin) => pin.workspaceId === oldId)) {
           // 仅改名：同步置顶记录里的展示标题（失败不影响改名本身）。
-          try { await sbApi("pin", { workspaceId: oldId, path: info.path || "", title: desiredTitle }) } catch { /* ignore */ }
+          try { await mutatePins("pin", { workspaceId: oldId, path: info.path || "", title: desiredTitle }) } catch { /* ignore */ }
         }
         const needsRename = targetId === oldId ? desiredTitle !== info.title : desiredTitle !== createdTitle
         if (needsRename) {
@@ -1215,10 +1239,13 @@ function applySidebar(ctx) {
 
   const doPin = async (info) => {
     const payload = { workspaceId: info.workspaceId, path: info.path || "", title: info.title || "" }
-    const result = await sbApi(info.pinned ? "unpin" : "pin", info.pinned ? { workspaceId: info.workspaceId } : payload)
-    if (result && result.ok === false) throw new Error(result.error || "置顶失败")
-    if (info.pinned) state.pins = state.pins.filter((pin) => pin.workspaceId !== info.workspaceId)
-    else state.pins = sbNormalizePins([{ ...payload, pinnedAt: new Date().toISOString() }, ...state.pins])
+    const method = info.pinned ? "unpin" : "pin"
+    const result = await mutatePins(method, info.pinned ? { workspaceId: info.workspaceId } : payload)
+    // mutatePins 已优先用宿主返回的权威 pins；旧宿主若未返回，则本地乐观更新兜底。
+    if (!result || !Array.isArray(result.pins)) {
+      if (info.pinned) state.pins = state.pins.filter((pin) => pin.workspaceId !== info.workspaceId)
+      else state.pins = sbNormalizePins([{ ...payload, pinnedAt: new Date().toISOString() }, ...state.pins])
+    }
     state.sig = ""
     closeMenu()
     scheduleSync()
@@ -1475,14 +1502,8 @@ function applySidebar(ctx) {
   sbApi("config")
     .then((result) => { if (result && result.ok !== false && typeof result.platform === "string") state.platform = result.platform })
     .catch(() => { /* ignore */ })
-    .then(() => sbApi("pins"))
-    .then((result) => {
-      if (result && result.ok !== false) {
-        state.pins = sbNormalizePins(result.pins)
-        state.sig = ""
-        scheduleSync()
-      }
-    })
+    .then(() => fetchPins())
+    .then((applied) => { if (applied) scheduleSync() })
     .catch(() => { /* 宿主未安装 sidebar-ui 时静默降级 */ })
 
   state.servicesReady = bindServices()
