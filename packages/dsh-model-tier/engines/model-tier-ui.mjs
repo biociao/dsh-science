@@ -315,7 +315,7 @@ function apply(ctx, config = {}) {
       async handler(req, res) {
         if (req.method !== "POST") return send(res, 405, { ok: false, error: "仅支持 POST" });
         if (!sameOrigin(req)) return send(res, 403, { ok: false, error: "非浏览器同源请求被拒绝（缺少/不匹配 Origin）" });
-        const name = (req.url || "").replace(/^\/dsh-model-tier\/?/, "").split("/")[0];
+        const name = (req.url || "").split("?")[0].split("#")[0].replace(/^\/dsh-model-tier\/?/, "").split("/")[0];
         if (!name || !METHODS.includes(name)) return send(res, 404, { ok: false, error: `未知方法 ${name}` });
         try {
           const body = await readBody(req);
